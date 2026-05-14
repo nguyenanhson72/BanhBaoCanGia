@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 4 — Retest of single HIGH-priority backend issue from iteration 3 (revenue date range support). All 9 backend tests in test_improvements.py now PASS (9/9, 100%). The previously failing TestRevenueDateRange::test_revenue_with_date_range is fixed. Direct verification against preview backend confirms: date_from=2026-05-01 & date_to=2026-05-14 returns exactly 14 daily buckets labeled 01/05..14/05; default ?period=daily still returns 30 buckets; ?period=monthly still returns 12 buckets. Regression of iteration-3 improvements remains green (orders desc sort, date filter, discount_percent, customer_address persistence, inventory negative_stock_count/products, base64 product image CRUD).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_improvements.py",
+    "/app/test_reports/pytest/improvements_iter4.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py reports_revenue() now correctly accepts date_from/date_to (Optional[str]) and builds one bucket per day inclusive of both ends when both are provided — verified by 14-day range producing 14 buckets.",
+    "Server.py still ~1148 lines — consider splitting into routers (carry-over suggestion, non-blocking)."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "9/9 (100%) on improvements suite; previously failing revenue date-range test now passes",
+    "frontend": "Not tested this iteration (backend-only retest as requested)"
+  },
+  "test_credentials": "admin@banhbao.vn / admin123 (from /app/memory/test_credentials.md) — login OK, JWT cookie returned.",
+  "seed_data_creation": "Test created TEST_ prefixed orders + one TEST_ product (auto-cleaned in test). No long-lived seed data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 13 iteration-3 improvements are now verified end-to-end on backend. Revenue endpoint contract: GET /api/reports/revenue accepts ?period=(daily|weekly|monthly) OR ?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD (custom inclusive daily buckets). Labels use DD/MM format. Frontend Reports page wires reports-date-from/reports-date-to inputs to this — frontend wiring was already validated in iteration 3; with backend fix it will now render the correct range. Outstanding non-blocking item from iteration 3: add data-testid to NewOrder Combobox triggers (customer & product).",
+  "rca of the issue": "Previous root cause was that /api/reports/revenue did not declare date_from/date_to params, so FastAPI dropped them and returned the default 30-day series. Fix added Optional[str] params and a new branch that iterates day-by-day from date_from to date_to inclusive (server.py lines 789-800+). Confirmed: response length = (date_to - date_from).days + 1 = 14 for 2026-05-01..2026-05-14."
+}

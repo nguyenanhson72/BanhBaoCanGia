@@ -786,11 +786,23 @@ async def delete_user(user_id: str, request_user: dict = Depends(require_role("a
 
 # ----- Reports -----
 @api.get("/reports/revenue")
-async def reports_revenue(period: str = "daily", user: dict = Depends(get_current_user)):
-    """period: daily (last 30d), weekly (last 12w), monthly (last 12m)"""
+async def reports_revenue(
+    period: str = "daily",
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """period: daily (last 30d), weekly (last 12w), monthly (last 12m); or pass date_from/date_to (YYYY-MM-DD) for a custom daily range."""
     now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     buckets = []
-    if period == "daily":
+    if date_from and date_to:
+        start_d = datetime.fromisoformat(date_from).replace(tzinfo=timezone.utc)
+        end_d = datetime.fromisoformat(date_to).replace(tzinfo=timezone.utc)
+        days = min((end_d - start_d).days + 1, 90)
+        for i in range(max(days, 1)):
+            d = start_d + timedelta(days=i)
+            buckets.append((d, d + timedelta(days=1), d.strftime("%d/%m")))
+    elif period == "daily":
         for i in range(29, -1, -1):
             d = now - timedelta(days=i)
             buckets.append((d, d + timedelta(days=1), d.strftime("%d/%m")))
