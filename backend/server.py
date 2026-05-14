@@ -412,8 +412,8 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     today_orders = await db.orders.find(
-        {"created_at": {"$gte": today_start}}, {"_id": 0}
-    ).to_list(None)
+        {"created_at": {"$gte": today_start}}, {"_id": 0, "total": 1, "status": 1}
+    ).limit(2000).to_list(None)
     today_revenue = sum(o.get("total", 0) for o in today_orders if o.get("status") != "cancelled")
 
     total_products = await db.products.count_documents({"is_active": True})
@@ -421,8 +421,8 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
 
     debt_orders = await db.orders.find(
         {"payment_method": "cod", "status": {"$ne": "cancelled"}, "is_paid": {"$ne": True}},
-        {"_id": 0},
-    ).to_list(None)
+        {"_id": 0, "total": 1},
+    ).limit(1000).to_list(None)
     total_debt = sum(o.get("total", 0) for o in debt_orders)
 
     # 7-day chart
@@ -431,8 +431,9 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
         day = today_start - timedelta(days=i)
         day_end = day + timedelta(days=1)
         day_orders = await db.orders.find(
-            {"created_at": {"$gte": day, "$lt": day_end}, "status": {"$ne": "cancelled"}}, {"_id": 0}
-        ).to_list(None)
+            {"created_at": {"$gte": day, "$lt": day_end}, "status": {"$ne": "cancelled"}},
+            {"_id": 0, "total": 1},
+        ).limit(1000).to_list(None)
         chart.append({
             "date": day.strftime("%d/%m"),
             "revenue": sum(o.get("total", 0) for o in day_orders),
@@ -496,7 +497,7 @@ async def list_products(
         query["category"] = category
     if low_stock:
         query["$expr"] = {"$lte": ["$stock", "$low_stock_threshold"]}
-    items = await db.products.find(query, {"_id": 0}).sort("created_at", -1).to_list(None)
+    items = await db.products.find(query, {"_id": 0}).sort("created_at", -1).limit(500).to_list(None)
     return items
 
 
@@ -585,7 +586,7 @@ async def list_suppliers(q: Optional[str] = None, user: dict = Depends(get_curre
             {"name": {"$regex": q, "$options": "i"}},
             {"phone": {"$regex": q, "$options": "i"}},
         ]
-    items = await db.suppliers.find(query, {"_id": 0}).sort("created_at", -1).to_list(None)
+    items = await db.suppliers.find(query, {"_id": 0}).sort("created_at", -1).limit(500).to_list(None)
     return items
 
 
@@ -751,7 +752,7 @@ async def delete_order(order_id: str, user: dict = Depends(require_role("admin")
 # ----- Users (Admin only) -----
 @api.get("/users")
 async def list_users(user: dict = Depends(require_role("admin", "manager"))):
-    items = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(None)
+    items = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).limit(500).to_list(None)
     return items
 
 
@@ -871,7 +872,9 @@ async def get_business_context() -> str:
     ).to_list(None)
     total_customers = await db.customers.count_documents({})
     total_products = await db.products.count_documents({"is_active": True})
-    today_orders_docs = await db.orders.find({"created_at": {"$gte": today}}, {"_id": 0}).to_list(None)
+    today_orders_docs = await db.orders.find(
+        {"created_at": {"$gte": today}}, {"_id": 0, "total": 1, "status": 1}
+    ).limit(2000).to_list(None)
     today_revenue = sum(o.get("total", 0) for o in today_orders_docs if o.get("status") != "cancelled")
 
     low_stock_text = "\n".join(
@@ -955,7 +958,7 @@ async def chat_history(session_id: str = Query(...), user: dict = Depends(get_cu
     msgs = await db.chat_messages.find(
         {"user_id": user["user_id"], "session_id": session_id},
         {"_id": 0},
-    ).sort("created_at", 1).to_list(None)
+    ).sort("created_at", 1).limit(100).to_list(None)
     return msgs
 
 
@@ -1132,3 +1135,4 @@ async def root():
 
 
 app.include_router(api)
+
