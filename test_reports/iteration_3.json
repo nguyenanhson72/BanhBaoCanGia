@@ -1,0 +1,60 @@
+{
+  "summary": "Iteration 3 — Tested the 13 new Banh Bao improvements. Backend: 9/10 new-feature assertions pass; revenue date-range support is MISSING (real backend gap). Frontend: 19/20 UI checks pass against preview URL (https://bao-cms-admin.preview.emergentagent.com). All new data-testid hooks are wired correctly: orders-print-button, orders-date-from/to, print-preview (+ Xuất PDF / In buttons), new-order-discount-percent/fixed, order-print-80mm, order-print-a4, reports-print-button, reports-date-from/to, product-form-upload-button, product-form-image-file. 80mm thermal bill preview opens and renders shop name, order code, customer name + phone, items w/ price+qty+subtotal, totals (address absent only because seeded orders predate the field — verified address persists for new orders via API).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/reports/revenue",
+        "issue": "Missing date_from / date_to query parameters. Spec requires daily buckets for a custom date range; current code only accepts ?period=daily|weekly|monthly and ignores date_from/date_to. Test sent date_from=2026-05-01&date_to=2026-05-14 expecting 14 daily buckets — server returned default 30 daily buckets (starting 15/04). The Reports frontend wires reports-date-from/reports-date-to inputs but backend ignores them so the chart will not reflect the chosen range.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Reports → Revenue date filter",
+        "issue": "UI selects date range but chart is not updated because backend /api/reports/revenue doesn't accept date_from/date_to (see backend critical).",
+        "affected_selectors": ["[data-testid='reports-date-from']", "[data-testid='reports-date-to']"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "NewOrder",
+        "issues": ["Customer combobox trigger has no data-testid (button-style element with placeholder 'Gõ tên hoặc SĐT khách...'). Same for product combobox. Adding data-testid='new-order-customer-combobox' and 'new-order-product-combobox' would make this testable; current Playwright tests must rely on placeholder text."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_improvements.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/improvements_results.xml"
+  ],
+  "action_items": [
+    "BACKEND: Add date_from / date_to query params to GET /api/reports/revenue (mirror the orders endpoint pattern). When provided, generate one daily bucket per day in [date_from, date_to] inclusive.",
+    "FRONTEND: Add data-testid to the Combobox trigger button in NewOrder (customer + product) so future automation doesn't depend on placeholder text.",
+    "OPTIONAL: Backfill seeded orders with sample customer_address so 80mm thermal preview shows a non-empty address for existing demo orders."
+  ],
+  "critical_code_review_comments": [
+    "server.py reports_revenue() still only takes 'period' — review request claims date_from/date_to are supported but the code does not implement them. Add `date_from: Optional[str] = None, date_to: Optional[str] = None` and a new buckets branch when both are provided.",
+    "create_order correctly computes percent_discount = subtotal * discount_percent/100 and total = subtotal - discount - percent_discount + shipping_fee. discount_amount = fixed + percent is also exposed in response — good.",
+    "Inventory report now correctly returns negative_stock_count and negative_stock_products fields.",
+    "/api/orders default sort verified descending by created_at (newest first).",
+    "Product CRUD accepts base64 image_url up to at least 50KB inline; large strings persist on POST and PUT.",
+    "server.py still ~1148 lines — consider splitting into routers (auth/products/orders/reports/chat)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_improvements.py (new)"
+  ],
+  "success_rate": {
+    "backend": "9/10 (90%) on new features — revenue date range missing; all other new endpoints/fields verified",
+    "frontend": "19/20 (95%) — only the customer-combobox selector check failed due to missing data-testid on the trigger; the component itself is rendered correctly"
+  },
+  "test_credentials": "Used /app/memory/test_credentials.md — admin@banhbao.vn / admin123 (admin) — login OK, JWT cookies set.",
+  "seed_data_creation": "Created and cleaned up TEST_ prefixed product (base64 image), and several TEST_ orders to validate discount_percent + customer_address. No long-lived seed data added.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "13 improvements largely landed. Remaining: (1) add date_from/date_to to /api/reports/revenue; (2) add data-testid to NewOrder Combobox trigger. After fix, re-run /app/backend/tests/test_improvements.py — specifically TestRevenueDateRange::test_revenue_with_date_range expects len(data)==14 for 2026-05-01..2026-05-14. Frontend testids confirmed present: orders-print-button, orders-date-from/to, print-preview (+ print-preview-close), new-order-discount-percent/fixed, order-print-80mm, order-print-a4, reports-print-button, reports-date-from/to, product-form-upload-button, product-form-image-file (type=file, accept=image/*). 80mm thermal bill modal renders correctly. Customer/product Combobox works — type in 'Lan' filters customer; selecting auto-fills name+phone+address per server response (verified via screenshot showing 'Gõ tên hoặc SĐT khách...' placeholder and seeded customer data has addresses).",
+  "rca of the issue": "/api/reports/revenue signature is `async def reports_revenue(period: str = 'daily', user: dict = Depends(get_current_user))` — there is no date_from/date_to parameter at all. FastAPI silently drops unknown query params, so the frontend's date pickers send unused params and the server returns the default 30-day daily series. Fix: extend signature to accept `date_from: Optional[str]=None, date_to: Optional[str]=None`, and add a branch that builds one bucket per day between the two dates (inclusive)."
+}

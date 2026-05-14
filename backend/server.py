@@ -231,10 +231,12 @@ class OrderIn(BaseModel):
     customer_id: Optional[str] = None
     customer_name: str
     customer_phone: Optional[str] = ""
+    customer_address: Optional[str] = ""
     items: List[OrderItemIn]
     payment_method: Literal["cash", "transfer", "cod", "card"] = "cash"
     note: Optional[str] = ""
     discount: float = 0
+    discount_percent: float = 0
     shipping_fee: float = 0
 
 
@@ -666,7 +668,8 @@ async def get_order(order_id: str, user: dict = Depends(get_current_user)):
 async def create_order(body: OrderIn, user: dict = Depends(get_current_user)):
     items = [it.model_dump() for it in body.items]
     subtotal = sum(it["subtotal"] for it in items)
-    total = subtotal - body.discount + body.shipping_fee
+    percent_discount = round(subtotal * (body.discount_percent or 0) / 100, 2)
+    total = subtotal - body.discount - percent_discount + body.shipping_fee
 
     order_id = f"ord_{uuid.uuid4().hex[:12]}"
     now = datetime.now(timezone.utc)
@@ -676,9 +679,12 @@ async def create_order(body: OrderIn, user: dict = Depends(get_current_user)):
         "customer_id": body.customer_id,
         "customer_name": body.customer_name,
         "customer_phone": body.customer_phone,
+        "customer_address": body.customer_address,
         "items": items,
         "subtotal": subtotal,
         "discount": body.discount,
+        "discount_percent": body.discount_percent,
+        "discount_amount": body.discount + percent_discount,
         "shipping_fee": body.shipping_fee,
         "total": total,
         "payment_method": body.payment_method,
@@ -810,8 +816,9 @@ async def reports_revenue(period: str = "daily", user: dict = Depends(get_curren
     result = []
     for start, end, label in buckets:
         orders = await db.orders.find(
-            {"created_at": {"$gte": start, "$lt": end}, "status": {"$ne": "cancelled"}}, {"_id": 0}
-        ).to_list(None)
+            {"created_at": {"$gte": start, "$lt": end}, "status": {"$ne": "cancelled"}},
+            {"_id": 0, "total": 1},
+        ).limit(2000).to_list(None)
         result.append({
             "label": label,
             "revenue": sum(o.get("total", 0) for o in orders),
@@ -848,15 +855,18 @@ async def reports_debt(user: dict = Depends(get_current_user)):
 
 @api.get("/reports/inventory")
 async def reports_inventory(user: dict = Depends(get_current_user)):
-    products = await db.products.find({"is_active": True}, {"_id": 0}).to_list(None)
+    products = await db.products.find({"is_active": True}, {"_id": 0}).limit(1000).to_list(None)
     total_value = sum(p.get("stock", 0) * p.get("cost", 0) for p in products)
-    low = [p for p in products if p.get("stock", 0) <= p.get("low_stock_threshold", 0)]
+    low = [p for p in products if 0 < p.get("stock", 0) <= p.get("low_stock_threshold", 0)]
     out_of_stock = [p for p in products if p.get("stock", 0) == 0]
+    negative = [p for p in products if p.get("stock", 0) < 0]
     return {
         "total_products": len(products),
         "total_stock_value": total_value,
         "low_stock_count": len(low),
         "out_of_stock_count": len(out_of_stock),
+        "negative_stock_count": len(negative),
+        "negative_stock_products": negative,
         "products": products,
     }
 
@@ -1135,4 +1145,3 @@ async def root():
 
 
 app.include_router(api)
-

@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { Plus, Search, Edit, Trash2 } from "lucide-react";
+import React, { useEffect, useState, useRef } from "react";
+import { Plus, Search, Edit, Trash2, Upload, Image as ImageIcon } from "lucide-react";
 import api from "../lib/api";
 import { Card, CardContent } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -25,6 +25,17 @@ const EMPTY = {
   variants: [],
 };
 
+const MAX_IMAGE_BYTES = 500 * 1024; // 500 KB
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function Products() {
   const { t } = useI18n();
   const [items, setItems] = useState([]);
@@ -34,6 +45,7 @@ export default function Products() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY);
+  const fileInputRef = useRef(null);
 
   const load = async () => {
     const params = {};
@@ -44,7 +56,7 @@ export default function Products() {
     setItems(data);
   };
 
-  useEffect(() => { load(); }, [category, lowOnly]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [category, lowOnly]);
 
   const openCreate = () => {
     setEditing(null);
@@ -71,6 +83,32 @@ export default function Products() {
     setOpen(true);
   };
 
+  const onPickFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Vui lòng chọn file hình ảnh", variant: "error" });
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      toast({
+        title: "Ảnh quá lớn",
+        description: `Tối đa ${Math.round(MAX_IMAGE_BYTES / 1024)} KB. Vui lòng nén ảnh trước.`,
+        variant: "error",
+      });
+      return;
+    }
+    try {
+      const b64 = await fileToBase64(file);
+      setForm((prev) => ({ ...prev, image_url: b64 }));
+      toast({ title: "Đã tải ảnh", variant: "success" });
+    } catch {
+      toast({ title: "Không đọc được file", variant: "error" });
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     try {
@@ -82,8 +120,8 @@ export default function Products() {
       toast({ title: t("common.saved"), variant: "success" });
       setOpen(false);
       load();
-    } catch (e) {
-      toast({ title: e?.response?.data?.detail || t("common.error"), variant: "error" });
+    } catch (err) {
+      toast({ title: err?.response?.data?.detail || t("common.error"), variant: "error" });
     }
   };
 
@@ -93,8 +131,8 @@ export default function Products() {
       await api.delete(`/products/${p.product_id}`);
       toast({ title: t("common.deleted"), variant: "success" });
       load();
-    } catch (e) {
-      toast({ title: e?.response?.data?.detail || t("common.error"), variant: "error" });
+    } catch (err) {
+      toast({ title: err?.response?.data?.detail || t("common.error"), variant: "error" });
     }
   };
 
@@ -144,6 +182,7 @@ export default function Products() {
           <div className="col-span-full text-center py-12 text-ink-muted">{t("common.empty")}</div>
         ) : items.map((p) => {
           const lowStock = p.stock <= p.low_stock_threshold;
+          const negative = p.stock < 0;
           return (
             <Card key={p.product_id} className="overflow-hidden hover:-translate-y-0.5 hover:shadow-md transition-all" data-testid={`product-card-${p.product_id}`}>
               <div className="aspect-[4/3] bg-cream relative overflow-hidden">
@@ -152,10 +191,10 @@ export default function Products() {
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-ink-muted text-xs">no image</div>
                 )}
-                {lowStock && (
+                {(lowStock || negative) && (
                   <div className="absolute top-2 right-2">
-                    <Badge variant={p.stock === 0 ? "cancelled" : "lowstock"}>
-                      {p.stock === 0 ? t("reports.outOfStock") : t("products.lowStockOnly")}
+                    <Badge variant={negative ? "cancelled" : p.stock === 0 ? "cancelled" : "lowstock"}>
+                      {negative ? `Âm ${p.stock}` : p.stock === 0 ? t("reports.outOfStock") : t("products.lowStockOnly")}
                     </Badge>
                   </div>
                 )}
@@ -169,7 +208,12 @@ export default function Products() {
                   <div className="font-mono text-bamboo font-bold whitespace-nowrap">{formatVND(p.price)}</div>
                 </div>
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-ink-muted">{t("products.stock")}: <span className={`font-medium ${lowStock ? "text-red-600" : "text-ink"}`}>{p.stock} {p.unit}</span></span>
+                  <span className="text-ink-muted">
+                    {t("products.stock")}:{" "}
+                    <span className={`font-medium ${negative ? "text-red-700" : lowStock ? "text-red-600" : "text-ink"}`}>
+                      {p.stock} {p.unit}
+                    </span>
+                  </span>
                   <div className="flex gap-1">
                     <Button variant="ghost" size="icon" onClick={() => openEdit(p)} data-testid={`product-edit-${p.product_id}`}>
                       <Edit size={14} />
@@ -187,6 +231,50 @@ export default function Products() {
 
       <Modal open={open} onClose={() => setOpen(false)} title={editing ? t("common.edit") : t("common.add")} size="lg" testId="product-modal">
         <form onSubmit={submit} className="space-y-4">
+          {/* Image upload area */}
+          <div>
+            <Label>{t("products.image")}</Label>
+            <div className="flex items-start gap-4">
+              <div className="w-28 h-28 rounded-md border border-border bg-cream/50 overflow-hidden flex items-center justify-center shrink-0">
+                {form.image_url ? (
+                  <img src={form.image_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <ImageIcon size={32} className="text-ink-muted" />
+                )}
+              </div>
+              <div className="flex-1 space-y-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={onPickFile}
+                  className="hidden"
+                  data-testid="product-form-image-file"
+                />
+                <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} data-testid="product-form-upload-button">
+                  <Upload size={14} /> Tải ảnh từ máy
+                </Button>
+                <div className="text-xs text-ink-muted">Hoặc dán URL ảnh:</div>
+                <Input
+                  value={form.image_url?.startsWith("data:") ? "" : form.image_url}
+                  onChange={(e) => setForm({ ...form, image_url: e.target.value })}
+                  placeholder="https://..."
+                  data-testid="product-form-image-url"
+                />
+                {form.image_url && (
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, image_url: "" })}
+                    className="text-xs text-red-600 hover:underline"
+                  >
+                    Xóa ảnh
+                  </button>
+                )}
+                <div className="text-[11px] text-ink-muted">Tối đa 500KB. JPG/PNG/WebP.</div>
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <Label>{t("products.name")} *</Label>
@@ -206,7 +294,7 @@ export default function Products() {
             </div>
             <div>
               <Label>{t("products.stock")}</Label>
-              <Input type="number" min={0} value={form.stock} onChange={(e) => setForm({ ...form, stock: Number(e.target.value) })} data-testid="product-form-stock" />
+              <Input type="number" value={form.stock} onChange={(e) => setForm({ ...form, stock: Number(e.target.value) })} data-testid="product-form-stock" />
             </div>
             <div>
               <Label>{t("products.lowStockThreshold")}</Label>
@@ -215,10 +303,6 @@ export default function Products() {
             <div>
               <Label>{t("products.unit")}</Label>
               <Input value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
-            </div>
-            <div>
-              <Label>{t("products.image")}</Label>
-              <Input value={form.image_url} onChange={(e) => setForm({ ...form, image_url: e.target.value })} />
             </div>
           </div>
           <div>

@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Truck, CheckCircle2, XCircle, Clock, Printer } from "lucide-react";
+import { ArrowLeft, Truck, CheckCircle2, XCircle, Clock, Printer, Receipt } from "lucide-react";
 import api from "../lib/api";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { Textarea, Label } from "../components/ui/Input";
 import { toast } from "../components/ui/Toast";
+import PrintPreview from "../components/ui/PrintPreview";
+import { BillThermal, InvoiceA4 } from "../components/print/BillTemplates";
 import { useI18n } from "../contexts/I18nContext";
 import { formatVND, formatDateTime } from "../lib/utils";
 
@@ -31,6 +33,7 @@ export default function OrderDetail() {
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [statusNote, setStatusNote] = useState("");
+  const [printMode, setPrintMode] = useState(null); // "80mm" | "a4" | null
 
   const load = async () => {
     setLoading(true);
@@ -42,7 +45,7 @@ export default function OrderDetail() {
     }
   };
 
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
   const updateStatus = async (newStatus) => {
     try {
@@ -60,7 +63,7 @@ export default function OrderDetail() {
 
   return (
     <div className="space-y-6 animate-fade-in" data-testid="order-detail-page">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => navigate("/orders")} data-testid="order-detail-back">
             <ArrowLeft size={18} />
@@ -72,9 +75,11 @@ export default function OrderDetail() {
         </div>
         <div className="flex items-center gap-2">
           <Badge variant={order.status} className="text-sm px-3 py-1">{t(`status.${order.status}`)}</Badge>
-          <Button variant="outline" size="sm" onClick={() => window.print()} data-testid="order-print">
-            <Printer size={14} />
-            {t("common.actions")}
+          <Button variant="outline" size="sm" onClick={() => setPrintMode("80mm")} data-testid="order-print-80mm">
+            <Receipt size={14} /> In bill 80mm
+          </Button>
+          <Button size="sm" onClick={() => setPrintMode("a4")} data-testid="order-print-a4">
+            <Printer size={14} /> In hóa đơn A4
           </Button>
         </div>
       </div>
@@ -106,8 +111,24 @@ export default function OrderDetail() {
               </table>
               <div className="p-4 space-y-1.5 border-t border-border">
                 <div className="flex justify-between text-sm"><span>{t("orders.subtotal")}</span><span className="font-mono">{formatVND(order.subtotal)}</span></div>
-                <div className="flex justify-between text-sm text-ink-muted"><span>{t("orders.discount")}</span><span className="font-mono">- {formatVND(order.discount)}</span></div>
-                <div className="flex justify-between text-sm text-ink-muted"><span>{t("orders.shipping")}</span><span className="font-mono">+ {formatVND(order.shipping_fee)}</span></div>
+                {order.discount_percent > 0 && (
+                  <div className="flex justify-between text-sm text-ink-muted">
+                    <span>Giảm {order.discount_percent}%</span>
+                    <span className="font-mono">- {formatVND(Math.round(order.subtotal * order.discount_percent / 100))}</span>
+                  </div>
+                )}
+                {order.discount > 0 && (
+                  <div className="flex justify-between text-sm text-ink-muted">
+                    <span>{t("orders.discount")}</span>
+                    <span className="font-mono">- {formatVND(order.discount)}</span>
+                  </div>
+                )}
+                {order.shipping_fee > 0 && (
+                  <div className="flex justify-between text-sm text-ink-muted">
+                    <span>{t("orders.shipping")}</span>
+                    <span className="font-mono">+ {formatVND(order.shipping_fee)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between font-heading pt-2 border-t border-border">
                   <span className="font-semibold">{t("orders.total")}</span>
                   <span className="text-lg font-bold text-bamboo" data-testid="order-detail-total">{formatVND(order.total)}</span>
@@ -152,6 +173,7 @@ export default function OrderDetail() {
             <CardContent className="space-y-1.5 text-sm">
               <div className="font-medium text-base">{order.customer_name}</div>
               {order.customer_phone && <div className="text-ink-muted">{order.customer_phone}</div>}
+              {order.customer_address && <div className="text-ink-muted">{order.customer_address}</div>}
             </CardContent>
           </Card>
 
@@ -193,6 +215,18 @@ export default function OrderDetail() {
           )}
         </div>
       </div>
+
+      {/* Print preview modal */}
+      <PrintPreview
+        open={printMode !== null}
+        onClose={() => setPrintMode(null)}
+        title={printMode === "80mm" ? "In bill 80mm" : "In hóa đơn A4"}
+        printId="bill-print-area"
+        pdfFilename={`bill-${order.order_code}.pdf`}
+        pdfFormat={printMode === "80mm" ? "80mm" : "a4"}
+      >
+        {printMode === "80mm" ? <BillThermal order={order} /> : <InvoiceA4 order={order} />}
+      </PrintPreview>
     </div>
   );
 }

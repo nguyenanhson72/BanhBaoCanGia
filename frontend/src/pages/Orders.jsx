@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Search, Plus, Eye, Filter } from "lucide-react";
+import { Search, Plus, Eye, Printer, FileDown } from "lucide-react";
 import api from "../lib/api";
 import { Card, CardContent } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Input, Select, Label } from "../components/ui/Input";
 import { Badge } from "../components/ui/Badge";
+import PrintPreview from "../components/ui/PrintPreview";
+import { OrdersListPrint } from "../components/print/ReportTemplates";
 import { useI18n } from "../contexts/I18nContext";
 import { formatVND, formatDateTime } from "../lib/utils";
 
@@ -15,7 +17,10 @@ export default function Orders() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [payment, setPayment] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [loading, setLoading] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -23,17 +28,38 @@ export default function Orders() {
     if (q) params.q = q;
     if (status) params.status = status;
     if (payment) params.payment_method = payment;
+    if (dateFrom) params.date_from = dateFrom;
+    if (dateTo) params.date_to = dateTo;
     try {
       const { data } = await api.get("/orders", { params });
+      // Backend already sorts by created_at desc; double-sort defensively
+      data.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       setOrders(data);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    load();
-  }, [status, payment]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [status, payment, dateFrom, dateTo]);
+
+  const filterLabel = useMemo(() => {
+    const parts = [];
+    if (status) parts.push(t(`status.${status}`));
+    if (payment) parts.push(t(`payment.${payment}`));
+    if (dateFrom || dateTo) parts.push(`${dateFrom || "..."} → ${dateTo || "..."}`);
+    if (q) parts.push(`"${q}"`);
+    return parts.join(" · ");
+  }, [status, payment, dateFrom, dateTo, q, t]);
+
+  const totalRevenue = orders.reduce((s, o) => s + (o.total || 0), 0);
+
+  const reset = () => {
+    setQ("");
+    setStatus("");
+    setPayment("");
+    setDateFrom("");
+    setDateTo("");
+  };
 
   return (
     <div className="space-y-6 animate-fade-in" data-testid="orders-page">
@@ -41,15 +67,20 @@ export default function Orders() {
         <div>
           <h1 className="font-heading text-3xl font-bold tracking-tight">{t("orders.title")}</h1>
           <p className="text-sm text-ink-secondary mt-1">
-            {orders.length} {t("common.total").toLowerCase()}
+            {orders.length} đơn · Doanh thu: <span className="font-medium text-bamboo">{formatVND(totalRevenue)}</span>
           </p>
         </div>
-        <Link to="/orders/new">
-          <Button data-testid="orders-new-button">
-            <Plus size={16} />
-            {t("orders.new")}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" size="md" onClick={() => setPrintOpen(true)} data-testid="orders-print-button">
+            <Printer size={14} /> In / PDF
           </Button>
-        </Link>
+          <Link to="/orders/new">
+            <Button data-testid="orders-new-button">
+              <Plus size={16} />
+              {t("orders.new")}
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Filters */}
@@ -60,7 +91,7 @@ export default function Orders() {
               e.preventDefault();
               load();
             }}
-            className="grid grid-cols-1 sm:grid-cols-4 gap-3"
+            className="grid grid-cols-1 sm:grid-cols-6 gap-3"
             data-testid="orders-filters"
           >
             <div className="sm:col-span-2">
@@ -75,6 +106,14 @@ export default function Orders() {
                   data-testid="orders-search-input"
                 />
               </div>
+            </div>
+            <div>
+              <Label>Từ ngày</Label>
+              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} data-testid="orders-date-from" />
+            </div>
+            <div>
+              <Label>Đến ngày</Label>
+              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} data-testid="orders-date-to" />
             </div>
             <div>
               <Label>{t("common.status")}</Label>
@@ -95,6 +134,12 @@ export default function Orders() {
                 <option value="cod">{t("payment.cod")}</option>
                 <option value="card">{t("payment.card")}</option>
               </Select>
+            </div>
+            <div className="sm:col-span-6 flex gap-2 justify-end">
+              <Button type="button" variant="ghost" size="sm" onClick={reset} data-testid="orders-filters-reset">
+                Xóa lọc
+              </Button>
+              <Button type="submit" size="sm" data-testid="orders-filters-apply">{t("common.filter")}</Button>
             </div>
           </form>
         </CardContent>
@@ -130,7 +175,7 @@ export default function Orders() {
                       <div className="text-xs text-ink-muted">{o.customer_phone}</div>
                     </td>
                     <td className="py-3 px-4 text-xs text-ink-secondary">
-                      {o.items?.length || 0} {t("common.quantity").toLowerCase()}
+                      {o.items?.length || 0} mặt hàng
                     </td>
                     <td className="py-3 px-4 text-right font-medium">{formatVND(o.total)}</td>
                     <td className="py-3 px-4 text-center text-xs">{t(`payment.${o.payment_method}`)}</td>
@@ -152,6 +197,17 @@ export default function Orders() {
           </table>
         </div>
       </Card>
+
+      <PrintPreview
+        open={printOpen}
+        onClose={() => setPrintOpen(false)}
+        title="Danh sách đơn hàng"
+        printId="orders-list-print"
+        pdfFilename={`danh-sach-don-hang-${new Date().toISOString().slice(0, 10)}.pdf`}
+        pdfFormat="a4"
+      >
+        <OrdersListPrint orders={orders} filterLabel={filterLabel} />
+      </PrintPreview>
     </div>
   );
 }
