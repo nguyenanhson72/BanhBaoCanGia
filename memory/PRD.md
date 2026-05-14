@@ -43,6 +43,20 @@ Internal management dashboard for a Vietnamese steamed bun (bánh bao) shop. Opt
 
 ## Implementation Date
 - **2026-05-14**: MVP delivered (all P0/P1 features above)
+- **2026-05-14 (later)**: Iteration 2 — 13 user-requested improvements:
+  - Orders default sort by created_at DESC (newest first)
+  - Print + PDF export on Reports (Revenue / Debt / Inventory) via html2pdf.js
+  - Print + PDF export on Orders list (filter-aware)
+  - Print bill in 2 formats from Order detail: 80mm thermal + A4 invoice
+  - Bill template minimal: shop name, order code, customer info, items (name/price/qty/subtotal), totals, purchase date + print date
+  - Product image upload from computer (base64, max 500KB) — both file upload button and URL fallback
+  - Searchable typeahead Combobox for customer + product in New Order (no more dropdown)
+  - Auto-fill customer address on selection in New Order
+  - Show product stock badge when picking item; warn if quantity exceeds stock
+  - Inventory report adds "Hàng âm" (negative stock) KPI card + dedicated red alert section
+  - Discount % field on New Order (in addition to fixed VND discount); both deduct from total
+  - Date range filter (Từ ngày / Đến ngày) on Orders list AND Reports Revenue
+  - Backend `/api/reports/revenue` now accepts `date_from` + `date_to` for custom daily buckets
 
 ## Backlog (Future)
 - **P1**: Email notifications (SendGrid), Excel/PDF export, audit logs, password reset flow
