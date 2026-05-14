@@ -96,9 +96,11 @@ export default function Login() {
               <div className="font-heading font-bold text-lg">Bánh Bao</div>
             </div>
             <button
+              type="button"
               onClick={toggleLang}
-              className="text-xs font-medium text-ink-secondary hover:text-ink uppercase tracking-wide"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-ink-secondary border border-border hover:border-bamboo hover:text-ink uppercase tracking-wide transition-colors"
               data-testid="login-lang-toggle"
+              aria-label="Toggle language"
             >
               {lang === "vi" ? "EN" : "VI"}
             </button>
