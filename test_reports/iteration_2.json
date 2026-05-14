@@ -1,0 +1,33 @@
+{
+  "summary": "Frontend e2e testing for Banh Bao Admin against preview URL. Login (prefilled admin@banhbao.vn/admin123), protected-route redirect, dashboard KPIs+Recharts+top products+low-stock+recent orders, sidebar nav (7 routes), Orders list+filters+New Order form (customer select autofill, add product modal trigger), Products grid w/ images & low-stock badges, Customers table, Suppliers cards w/ star rating, Users (admin+staff seeded), Reports 3 tabs (revenue bar chart w/ daily/weekly/monthly + debt + inventory KPI/table), AI Chatbot (Claude Sonnet 4.5 returned real revenue answer in Vietnamese within ~10s), Header user menu + Logout, Settings (company info, language Tiếng Việt/English, integration status badges Google/Claude connected, SendGrid/VNPay not connected), Mobile viewport hamburger menu, and Google login button presence on /login. ALL critical flows pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Login", "issues": ["Language indicator on /login is plain text 'EN' (no data-testid, not styled as a button) — minor UX nit; the requirement 'language toggle visible' is technically met but inconsistent with the in-app header toggle (header-lang-toggle) which is a proper button."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: make the /login language switch a real button with data-testid='login-lang-toggle' for consistency with header-lang-toggle.",
+    "Optional: server.py is ~1130 lines — consider splitting into routers/services for maintainability (carried over from iter 1)."
+  ],
+  "critical_code_review_comments": [
+    "data-testid coverage is excellent across Dashboard/Orders/Sidebar/Header/Chat/Toast — meets testability guideline.",
+    "Chat panel correctly streams Claude Sonnet 4.5 responses with Vietnamese formatting and emoji; latency ~6-10s observed.",
+    "Recent orders, low stock, and reports inventory all read live data (no _id leak observed in UI).",
+    "Mobile breakpoint switches to hamburger + collapses sidebar correctly at 390px viewport."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (from iter 1)", "frontend": "100% of tested flows"},
+  "test_credentials": "/app/memory/test_credentials.md present and valid. Admin admin@banhbao.vn/admin123 and Staff staff@banhbao.vn/staff123 both seeded.",
+  "seed_data_creation": "Used existing seeded data (6 products, 5 customers, 3 suppliers, ~25 orders, 2 users). No new test data created during this UI run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Frontend at https://bao-cms-admin.preview.emergentagent.com. Login form is prefilled — just click submit (button[type=submit] or no specific testid yet). data-testid map: dashboard-page, kpi-{today-revenue,today-orders,debt,products}, dashboard-revenue-chart, dashboard-top-products, dashboard-low-stock, dashboard-recent-orders, nav-{dashboard,orders,products,customers,suppliers,users,reports,settings}, header-{lang-toggle,user-menu,notifications,menu-button}, orders-{page,new-button,filters,search-input,status-filter,payment-filter,table-body}, order-row-/order-view-{id}, chat-floating-button, toast-{container,success}. Reports page tabs are not standard role=tab — query by button:has-text('Công nợ'|'Tồn kho'). New Order page is at /orders/new — customer select autofills name+phone on selection. AI chat sends via Enter key (no chat-send testid found). Logout flow: header-user-menu → 'Đăng xuất' button → /login.",
+  "rca of the issue": "N/A — no critical issues found."
+}
