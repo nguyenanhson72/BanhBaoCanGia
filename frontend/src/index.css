@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bamboo: #2D4A22;
+  --bamboo-hover: #223819;
+  --terracotta: #D95D39;
+  --cream: #F4F1EA;
+  --bg-default: #FAFAFA;
+  --text-primary: #1A1A1A;
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  background-color: var(--bg-default);
+  color: var(--text-primary);
+  font-feature-settings: "cv02", "cv11";
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Manrope', sans-serif;
+  letter-spacing: -0.01em;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
+
+/* Selection */
+::selection {
+  background-color: rgba(45, 74, 34, 0.15);
+  color: #1A1A1A;
+}
+
+/* Focus visible reset for accessibility */
+:focus-visible {
+  outline: 2px solid #2D4A22;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Subtle paper-like background texture for the dashboard */
+.bg-paper {
+  background-color: #FAFAFA;
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(45, 74, 34, 0.04) 1px, transparent 0);
+  background-size: 24px 24px;
+}
