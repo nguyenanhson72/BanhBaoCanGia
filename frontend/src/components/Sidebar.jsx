@@ -14,6 +14,8 @@ import {
   Sparkles,
   Wallet,
   Bike,
+  Factory,
+  Brain,
 } from "lucide-react";
 import { useI18n } from "../contexts/I18nContext";
 import { useAuth } from "../contexts/AuthContext";
@@ -24,8 +26,10 @@ const NAV_ITEMS = [
   { to: "/orders", icon: ShoppingBag, key: "orders", testId: "nav-orders", perm: "orders.view" },
   { to: "/products", icon: Package, key: "products", testId: "nav-products", perm: "products.view" },
   { to: "/materials", icon: Wheat, key: "materials", testId: "nav-materials", perm: "materials.view" },
+  { to: "/production", icon: Factory, key: "production", testId: "nav-production", perm: "stock.in" },
   { to: "/customers", icon: Users, key: "customers", testId: "nav-customers", perm: "customers.view" },
   { to: "/customer-care", icon: HeartHandshake, key: "customerCare", testId: "nav-customer-care", perm: "customers.view" },
+  { to: "/insights", icon: Brain, key: "insights", testId: "nav-insights", perm: "reports.view" },
   { to: "/suppliers", icon: Truck, key: "suppliers", testId: "nav-suppliers", perm: "suppliers.view" },
   { to: "/debts", icon: Wallet, key: "debts", testId: "nav-debts", perm: "debts.view" },
   { to: "/delivery", icon: Bike, key: "delivery", testId: "nav-delivery", perm: "delivery.view" },

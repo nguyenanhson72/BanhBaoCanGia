@@ -263,104 +263,120 @@ export function InvoiceA4({ order, shop }) {
   );
 }
 
-/** A5 landscape — 210mm x 148mm */
+/** A5 landscape — 210mm x 148mm — compact layout to save paper */
 export function InvoiceA5Landscape({ order, shop }) {
   if (!order) return null;
   shop = shop || {};
   const purchaseDate = new Date(order.created_at);
   const printDate = new Date();
+  const showQR = shop.bill_show_bank_qr && shop.bank_account && shop.bank_name;
 
   return (
     <div style={{
       background: "#fff", color: "#000",
       width: "210mm", height: "148mm",
-      padding: "8mm",
+      padding: "5mm 6mm",
       fontFamily: "'IBM Plex Sans', sans-serif",
-      fontSize: 10,
+      fontSize: 9,
       display: "flex", flexDirection: "column",
+      boxSizing: "border-box",
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, paddingBottom: 6, borderBottom: "2px solid #2D4A22" }}>
-        <ShopHeader shop={shop} variant="a5" />
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: 0.5 }}>HÓA ĐƠN</div>
-          <div style={{ fontSize: 10, fontFamily: "monospace" }}>{order.order_code}</div>
-          <div style={{ fontSize: 9, color: "#71717A" }}>{purchaseDate.toLocaleString("vi-VN")}</div>
+      {/* Compact header row */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: 4, borderBottom: "1.5px solid #2D4A22", marginBottom: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {shop.bill_show_logo && shop.logo_url && (
+            <img src={shop.logo_url} alt="" style={{ width: 28, height: 28, objectFit: "contain" }} />
+          )}
+          <div style={{ lineHeight: 1.2 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#2D4A22" }}>{shop.shop_name}</div>
+            <div style={{ fontSize: 8, color: "#52525B" }}>
+              {shop.bill_show_address && shop.address ? <span>{shop.address} </span> : null}
+              {shop.bill_show_phone && shop.phone ? <span>· ĐT: {shop.phone}</span> : null}
+            </div>
+          </div>
+        </div>
+        <div style={{ textAlign: "right", lineHeight: 1.2 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5 }}>HÓA ĐƠN</div>
+          <div style={{ fontSize: 9, fontFamily: "monospace" }}>{order.order_code}</div>
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 8, fontSize: 10 }}>
-        <div>
-          <div style={{ fontSize: 8, textTransform: "uppercase", color: "#71717A" }}>Khách hàng</div>
-          <div style={{ fontWeight: 600 }}>{order.customer_name}</div>
-          {order.customer_phone && <div>{order.customer_phone}</div>}
-          {order.customer_address && <div style={{ fontSize: 9 }}>{order.customer_address}</div>}
+      {/* Customer + dates compact */}
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, fontSize: 9, lineHeight: 1.3 }}>
+        <div style={{ flex: 1 }}>
+          <span style={{ fontSize: 8, textTransform: "uppercase", color: "#71717A" }}>Khách:</span>{" "}
+          <strong>{order.customer_name}</strong>
+          {order.customer_phone && <span> · {order.customer_phone}</span>}
+          {order.customer_address && <div style={{ fontSize: 8 }}>{order.customer_address}</div>}
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 8, textTransform: "uppercase", color: "#71717A" }}>Ngày in</div>
-          <div>{printDate.toLocaleString("vi-VN")}</div>
+          <div style={{ fontSize: 8 }}>Mua: {purchaseDate.toLocaleString("vi-VN")}</div>
+          <div style={{ fontSize: 8 }}>In: {printDate.toLocaleString("vi-VN")}</div>
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
-        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 10 }}>
+      <div style={{ display: "flex", gap: 6, flex: 1, minHeight: 0 }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 9 }}>
             <thead>
               <tr style={{ background: "#F4F1EA", textTransform: "uppercase", fontSize: 8, color: "#52525B" }}>
-                <th style={{ padding: "5px 4px", textAlign: "left" }}>Tên hàng</th>
-                <th style={{ padding: "5px 4px", textAlign: "right", width: "20%" }}>Đơn giá</th>
-                <th style={{ padding: "5px 4px", textAlign: "center", width: "10%" }}>SL</th>
-                <th style={{ padding: "5px 4px", textAlign: "right", width: "20%" }}>Thành tiền</th>
+                <th style={{ padding: "3px 4px", textAlign: "left" }}>Tên hàng</th>
+                <th style={{ padding: "3px 4px", textAlign: "right", width: "18%" }}>Đơn giá</th>
+                <th style={{ padding: "3px 4px", textAlign: "center", width: "8%" }}>SL</th>
+                <th style={{ padding: "3px 4px", textAlign: "right", width: "20%" }}>Thành tiền</th>
               </tr>
             </thead>
             <tbody>
               {order.items.map((it, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid #E4E4E7" }}>
-                  <td style={{ padding: "5px 4px" }}>{it.name}</td>
-                  <td style={{ padding: "5px 4px", textAlign: "right", fontFamily: "monospace" }}>{formatVND(it.price)}</td>
-                  <td style={{ padding: "5px 4px", textAlign: "center" }}>{it.quantity}</td>
-                  <td style={{ padding: "5px 4px", textAlign: "right", fontFamily: "monospace", fontWeight: 600 }}>{formatVND(it.subtotal)}</td>
+                <tr key={i} style={{ borderBottom: "1px dotted #E4E4E7" }}>
+                  <td style={{ padding: "3px 4px" }}>{it.name}</td>
+                  <td style={{ padding: "3px 4px", textAlign: "right", fontFamily: "monospace" }}>{formatVND(it.price)}</td>
+                  <td style={{ padding: "3px 4px", textAlign: "center" }}>{it.quantity}</td>
+                  <td style={{ padding: "3px 4px", textAlign: "right", fontFamily: "monospace", fontWeight: 600 }}>{formatVND(it.subtotal)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          <div style={{ marginTop: 6, marginLeft: "auto", width: "60%", fontSize: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
-              <span style={{ color: "#52525B" }}>Tạm tính</span>
-              <span style={{ fontFamily: "monospace" }}>{formatVND(order.subtotal)}</span>
-            </div>
-            {(order.discount > 0 || order.discount_percent > 0) && (
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
-                <span style={{ color: "#52525B" }}>Giảm{order.discount_percent > 0 ? ` (${order.discount_percent}%)` : ""}</span>
-                <span style={{ fontFamily: "monospace" }}>- {formatVND(order.discount_amount || order.discount)}</span>
+          <div style={{ marginTop: "auto", paddingTop: 4 }}>
+            <div style={{ marginLeft: "auto", width: "55%", fontSize: 9 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "1px 0" }}>
+                <span style={{ color: "#52525B" }}>Tạm tính</span>
+                <span style={{ fontFamily: "monospace" }}>{formatVND(order.subtotal)}</span>
               </div>
-            )}
-            {order.shipping_fee > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
-                <span style={{ color: "#52525B" }}>Phí ship</span>
-                <span style={{ fontFamily: "monospace" }}>+ {formatVND(order.shipping_fee)}</span>
+              {(order.discount > 0 || order.discount_percent > 0) && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "1px 0" }}>
+                  <span style={{ color: "#52525B" }}>Giảm{order.discount_percent > 0 ? ` (${order.discount_percent}%)` : ""}</span>
+                  <span style={{ fontFamily: "monospace" }}>- {formatVND(order.discount_amount || order.discount)}</span>
+                </div>
+              )}
+              {order.shipping_fee > 0 && (
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "1px 0" }}>
+                  <span style={{ color: "#52525B" }}>Phí ship</span>
+                  <span style={{ fontFamily: "monospace" }}>+ {formatVND(order.shipping_fee)}</span>
+                </div>
+              )}
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0 1px", borderTop: "1.5px solid #2D4A22", marginTop: 2, fontSize: 12, fontWeight: 700 }}>
+                <span>TỔNG</span>
+                <span style={{ color: "#2D4A22", fontFamily: "monospace" }}>{formatVND(order.total)}</span>
               </div>
-            )}
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0 2px", borderTop: "2px solid #2D4A22", marginTop: 4, fontSize: 13, fontWeight: 700 }}>
-              <span>TỔNG</span>
-              <span style={{ color: "#2D4A22", fontFamily: "monospace" }}>{formatVND(order.total)}</span>
             </div>
           </div>
         </div>
 
-        {shop.bill_show_bank_qr && shop.bank_account && shop.bank_name && (
-          <div style={{ textAlign: "center", paddingTop: 4, minWidth: 110 }}>
-            <div style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", color: "#71717A", marginBottom: 4 }}>
+        {showQR && (
+          <div style={{ textAlign: "center", minWidth: 90, alignSelf: "center" }}>
+            <div style={{ fontSize: 7, fontWeight: 700, textTransform: "uppercase", color: "#71717A", marginBottom: 2 }}>
               QR Thanh toán
             </div>
-            <VietQRImage shop={shop} amount={order.total} note={order.order_code} size={100} />
-            <div style={{ fontSize: 8, marginTop: 4 }}>{shop.bank_name}</div>
-            <div style={{ fontSize: 8, fontFamily: "monospace" }}>{shop.bank_account}</div>
+            <VietQRImage shop={shop} amount={order.total} note={order.order_code} size={80} />
+            <div style={{ fontSize: 7, marginTop: 2 }}>{shop.bank_name}</div>
+            <div style={{ fontSize: 7, fontFamily: "monospace" }}>{shop.bank_account}</div>
           </div>
         )}
       </div>
 
-      <div style={{ textAlign: "center", marginTop: 6, fontSize: 9, fontStyle: "italic", color: "#71717A", paddingTop: 6, borderTop: "1px solid #E4E4E7" }}>
+      <div style={{ textAlign: "center", marginTop: 3, fontSize: 8, fontStyle: "italic", color: "#71717A", paddingTop: 3, borderTop: "1px dotted #E4E4E7" }}>
         {shop.bill_footer_text || "Cảm ơn quý khách"}
       </div>
     </div>

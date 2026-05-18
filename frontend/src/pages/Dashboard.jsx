@@ -27,15 +27,15 @@ import { Button } from "../components/ui/Button";
 import { useI18n } from "../contexts/I18nContext";
 import { formatVND, timeAgo } from "../lib/utils";
 
-function KpiCard({ icon: Icon, title, value, hint, accent = "bamboo", testId }) {
+function KpiCard({ icon: Icon, title, value, hint, accent = "bamboo", testId, to }) {
   const accents = {
     bamboo: "bg-bamboo/10 text-bamboo",
     terracotta: "bg-terracotta/10 text-terracotta",
     amber: "bg-amber-100 text-amber-700",
     blue: "bg-blue-50 text-blue-700",
   };
-  return (
-    <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all" data-testid={testId}>
+  const inner = (
+    <Card className="hover:-translate-y-0.5 hover:shadow-md transition-all cursor-pointer" data-testid={testId}>
       <CardContent>
         <div className="flex items-start justify-between">
           <div className="space-y-1">
@@ -52,6 +52,7 @@ function KpiCard({ icon: Icon, title, value, hint, accent = "bamboo", testId }) 
       </CardContent>
     </Card>
   );
+  return to ? <Link to={to}>{inner}</Link> : inner;
 }
 
 export default function Dashboard() {
@@ -100,6 +101,7 @@ export default function Dashboard() {
           value={formatVND(stats.today_revenue)}
           accent="bamboo"
           testId="kpi-today-revenue"
+          to={`/orders?date_from=${new Date().toISOString().slice(0,10)}&date_to=${new Date().toISOString().slice(0,10)}`}
         />
         <KpiCard
           icon={ShoppingBag}
@@ -107,6 +109,7 @@ export default function Dashboard() {
           value={stats.today_orders}
           accent="terracotta"
           testId="kpi-today-orders"
+          to="/orders"
         />
         <KpiCard
           icon={Wallet}
@@ -114,6 +117,7 @@ export default function Dashboard() {
           value={formatVND(stats.total_debt)}
           accent="amber"
           testId="kpi-debt"
+          to="/debts"
         />
         <KpiCard
           icon={Package}
@@ -121,6 +125,7 @@ export default function Dashboard() {
           value={stats.total_products}
           accent="blue"
           testId="kpi-products"
+          to="/products"
         />
       </div>
 

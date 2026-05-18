@@ -268,6 +268,7 @@ class ProductIn(BaseModel):
     image_url: Optional[str] = None
     variants: List[dict] = []
     is_active: bool = True
+    expiration_days: int = 3  # default shelf life for products
 
 
 class MaterialIn(BaseModel):
@@ -831,8 +832,10 @@ async def stock_in(body: StockInIn, user: dict = Depends(require_permission("sto
             prod_date = datetime.fromisoformat(body.production_date).replace(tzinfo=timezone.utc)
         if body.expiration_date:
             exp_date = datetime.fromisoformat(body.expiration_date).replace(tzinfo=timezone.utc)
-        elif prod_date and body.kind == "material":
-            exp_date = prod_date + timedelta(days=int(target.get("expiration_days", 30)))
+        elif prod_date:
+            # Default shelf life from target (default 30d for materials, 3d for products)
+            default_days = int(target.get("expiration_days", 30 if body.kind == "material" else 3))
+            exp_date = prod_date + timedelta(days=default_days)
     except Exception:
         prod_date = None
         exp_date = None
@@ -853,7 +856,31 @@ async def stock_in(body: StockInIn, user: dict = Depends(require_permission("sto
         "created_at": now, "created_by": user.get("name", "system"), "created_by_id": user["user_id"],
     }
     await db.stock_movements.insert_one(movement)
-    await db[coll].update_one({id_field: body.target_id}, {"$inc": {"stock": body.quantity}})
+    upd = {"$inc": {"stock": body.quantity}}
+    if body.kind == "product" and exp_date:
+        upd["$set"] = {"latest_expiration_date": exp_date, "latest_production_date": prod_date}
+    await db[coll].update_one({id_field: body.target_id}, upd)
+
+    # Auto-create supplier debt when supplier + unit_price > 0
+    if body.supplier_id and body.unit_price > 0:
+        debt_total = body.unit_price * body.quantity
+        await db.suppliers.update_one(
+            {"supplier_id": body.supplier_id},
+            {"$inc": {"total_debt": debt_total}},
+        )
+        # Track as an outstanding stock-in debt entry
+        await db.debt_payments.insert_one({
+            "payment_id": f"dbt_{uuid.uuid4().hex[:10]}",
+            "direction": "supplier_debt",  # debt incurred (NOT yet paid)
+            "supplier_id": body.supplier_id,
+            "supplier_name": body.supplier_name,
+            "movement_id": movement["movement_id"],
+            "amount": debt_total,
+            "method": "pending",
+            "notes": f"Nhập kho {target.get('name')} x{body.quantity}",
+            "created_at": now, "created_by": user.get("name"), "created_by_id": user["user_id"],
+        })
+
     movement.pop("_id", None)
     return movement
 
@@ -909,6 +936,336 @@ async def expiring_soon(days: int = 7, user: dict = Depends(get_current_user)):
         {"_id": 0},
     ).sort("expiration_date", 1).limit(200).to_list(None)
     return items
+
+
+# ===========================================================================
+# Phase 5 — Production (Sản xuất)
+# ===========================================================================
+class ProductionBatchIn(BaseModel):
+    product_id: str
+    quantity: int
+    shift: Literal["morning", "afternoon", "evening", "night"] = "morning"
+    production_date: Optional[str] = None  # YYYY-MM-DD
+    expiration_date: Optional[str] = None
+    batch_code: Optional[str] = None
+    materials_used: List[dict] = []  # [{material_id, quantity}]
+    notes: Optional[str] = ""
+
+
+@api.get("/production")
+async def list_production(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    shift: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    q = {}
+    if shift:
+        q["shift"] = shift
+    date_q = {}
+    if date_from:
+        date_q["$gte"] = datetime.fromisoformat(date_from).replace(tzinfo=timezone.utc)
+    if date_to:
+        date_q["$lte"] = datetime.fromisoformat(date_to).replace(tzinfo=timezone.utc) + timedelta(days=1)
+    if date_q:
+        q["production_date"] = date_q
+    items = await db.production_batches.find(q, {"_id": 0}).sort("production_date", -1).limit(500).to_list(None)
+    return items
+
+
+@api.post("/production")
+async def create_production(body: ProductionBatchIn, user: dict = Depends(require_permission("stock.in"))):
+    now = datetime.now(timezone.utc)
+    product = await db.products.find_one({"product_id": body.product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+
+    prod_date = datetime.fromisoformat(body.production_date).replace(tzinfo=timezone.utc) if body.production_date else now
+    exp_date = datetime.fromisoformat(body.expiration_date).replace(tzinfo=timezone.utc) if body.expiration_date else (
+        prod_date + timedelta(days=int(product.get("expiration_days", 3)))
+    )
+
+    doc = {
+        "batch_id": f"pb_{uuid.uuid4().hex[:10]}",
+        "batch_code": body.batch_code or f"SX-{prod_date.strftime('%y%m%d')}-{body.shift[:1].upper()}",
+        "product_id": body.product_id,
+        "product_name": product.get("name"),
+        "quantity": body.quantity,
+        "shift": body.shift,
+        "production_date": prod_date,
+        "expiration_date": exp_date,
+        "materials_used": body.materials_used,
+        "notes": body.notes,
+        "created_at": now, "created_by": user.get("name"), "created_by_id": user["user_id"],
+    }
+    await db.production_batches.insert_one(doc)
+    # Increment product stock + record stock movement
+    await db.products.update_one(
+        {"product_id": body.product_id},
+        {"$inc": {"stock": body.quantity}, "$set": {"latest_expiration_date": exp_date, "latest_production_date": prod_date}},
+    )
+    await db.stock_movements.insert_one({
+        "movement_id": f"mov_{uuid.uuid4().hex[:10]}",
+        "kind": "product",
+        "target_id": body.product_id,
+        "target_name": product.get("name"),
+        "type": "production",
+        "quantity": body.quantity,
+        "remaining": body.quantity,
+        "production_date": prod_date,
+        "expiration_date": exp_date,
+        "batch_code": doc["batch_code"],
+        "notes": f"Sản xuất ca {body.shift}",
+        "created_at": now, "created_by": user.get("name"), "created_by_id": user["user_id"],
+    })
+    # Decrement materials used
+    for mu in body.materials_used:
+        if mu.get("material_id") and mu.get("quantity"):
+            await db.materials.update_one(
+                {"material_id": mu["material_id"]}, {"$inc": {"stock": -float(mu["quantity"])}},
+            )
+    doc.pop("_id", None)
+    return doc
+
+
+@api.delete("/production/{batch_id}")
+async def delete_production(batch_id: str, user: dict = Depends(require_permission("stock.adjust"))):
+    b = await db.production_batches.find_one({"batch_id": batch_id})
+    if not b:
+        raise HTTPException(status_code=404, detail="Không tìm thấy lô")
+    # rollback stock
+    await db.products.update_one({"product_id": b["product_id"]}, {"$inc": {"stock": -b["quantity"]}})
+    for mu in b.get("materials_used", []):
+        if mu.get("material_id") and mu.get("quantity"):
+            await db.materials.update_one({"material_id": mu["material_id"]}, {"$inc": {"stock": float(mu["quantity"])}})
+    await db.production_batches.delete_one({"batch_id": batch_id})
+    return {"ok": True}
+
+
+@api.get("/production/forecast")
+async def production_forecast(days_ahead: int = 1, user: dict = Depends(get_current_user)):
+    """AI-powered recommendation for tomorrow's production quantity per product."""
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    target_date = today_start + timedelta(days=days_ahead)
+    target_dow = target_date.weekday()  # 0=Monday
+
+    # Look back 28 days for sold quantities per product per day-of-week
+    cutoff = today_start - timedelta(days=28)
+    pipeline = [
+        {"$match": {"created_at": {"$gte": cutoff}, "status": {"$ne": "cancelled"}}},
+        {"$unwind": "$items"},
+        {"$project": {
+            "items": 1,
+            "dow": {"$mod": [{"$add": [{"$dayOfWeek": "$created_at"}, 5]}, 7]},  # Mongo: Sun=1; offset to Mon=0
+            "day": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}},
+        }},
+        {"$group": {
+            "_id": {"product_id": "$items.product_id", "name": "$items.name", "dow": "$dow", "day": "$day"},
+            "qty": {"$sum": "$items.quantity"},
+        }},
+    ]
+    daily_buckets = []
+    async for r in db.orders.aggregate(pipeline):
+        daily_buckets.append(r)
+
+    # Aggregate per (product, dow): list of daily quantities
+    by_prod_dow = {}
+    for r in daily_buckets:
+        key = (r["_id"]["product_id"], r["_id"]["dow"])
+        by_prod_dow.setdefault(key, {"name": r["_id"]["name"], "values": []})
+        by_prod_dow[key]["values"].append(r["qty"])
+
+    forecasts = []
+    for (pid, dow), info in by_prod_dow.items():
+        if dow != target_dow:
+            continue
+        values = info["values"]
+        if not values:
+            continue
+        avg = sum(values) / len(values)
+        recommended = int(round(avg * 1.1))  # +10% buffer
+        product = await db.products.find_one({"product_id": pid}, {"_id": 0, "stock": 1, "low_stock_threshold": 1, "unit": 1, "name": 1})
+        current_stock = product.get("stock", 0) if product else 0
+        needed = max(0, recommended - current_stock)
+        forecasts.append({
+            "product_id": pid,
+            "name": info["name"],
+            "day_of_week": dow,
+            "avg_daily_sold": round(avg, 1),
+            "samples": len(values),
+            "recommended_production": recommended,
+            "current_stock": current_stock,
+            "needs_to_produce": needed,
+            "unit": product.get("unit", "cái") if product else "cái",
+        })
+    forecasts.sort(key=lambda x: x["needs_to_produce"], reverse=True)
+
+    # Aggregate summary for AI suggestion text
+    DOW_NAMES = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"]
+    return {
+        "target_date": target_date.strftime("%Y-%m-%d"),
+        "target_day_of_week": DOW_NAMES[target_dow],
+        "lookback_days": 28,
+        "forecasts": forecasts,
+    }
+
+
+# ===========================================================================
+# Phase 8 — Smart insights (Combo + Customer scoring + Churn)
+# ===========================================================================
+@api.get("/insights/combos")
+async def insight_combos(min_count: int = 2, user: dict = Depends(get_current_user)):
+    """Frequently bought together: pairs of products that appear in the same order."""
+    pipeline = [
+        {"$match": {"status": {"$ne": "cancelled"}}},
+        {"$project": {"product_ids": "$items.product_id", "items": 1}},
+        {"$match": {"$expr": {"$gte": [{"$size": "$product_ids"}, 2]}}},
+        {"$limit": 5000},
+    ]
+    pairs_count: Dict[str, Dict[str, Any]] = {}
+    async for o in db.orders.aggregate(pipeline):
+        items = o.get("items", [])
+        n = len(items)
+        for i in range(n):
+            for j in range(i + 1, n):
+                a = items[i]
+                b = items[j]
+                if a.get("product_id") == b.get("product_id"):
+                    continue
+                key = tuple(sorted([a.get("product_id", ""), b.get("product_id", "")]))
+                key_str = "|".join(key)
+                if key_str not in pairs_count:
+                    name_a = a["name"] if a.get("product_id") == key[0] else b["name"]
+                    name_b = b["name"] if b.get("product_id") == key[1] else a["name"]
+                    pairs_count[key_str] = {
+                        "product_a_id": key[0], "product_b_id": key[1],
+                        "name_a": name_a, "name_b": name_b,
+                        "count": 0, "revenue": 0.0,
+                    }
+                pairs_count[key_str]["count"] += 1
+                pairs_count[key_str]["revenue"] += a.get("subtotal", 0) + b.get("subtotal", 0)
+
+    filtered = [v for v in pairs_count.values() if v["count"] >= min_count]
+    filtered.sort(key=lambda x: x["count"], reverse=True)
+    return {"items": filtered[:30]}
+
+
+@api.get("/insights/customer-scoring")
+async def insight_customer_scoring(user: dict = Depends(get_current_user)):
+    """Rule-based scoring: classify customers as VIP / High potential / At risk / Churned."""
+    now = datetime.now(timezone.utc)
+    customers = await db.customers.find({}, {"_id": 0}).limit(2000).to_list(None)
+    pipeline = [
+        {"$match": {"status": {"$ne": "cancelled"}, "customer_id": {"$ne": None}}},
+        {"$group": {
+            "_id": "$customer_id",
+            "last_order": {"$max": "$created_at"},
+            "first_order": {"$min": "$created_at"},
+            "order_count": {"$sum": 1},
+            "total_spent": {"$sum": "$total"},
+            "avg_order": {"$avg": "$total"},
+        }},
+    ]
+    stats = {}
+    async for r in db.orders.aggregate(pipeline):
+        stats[r["_id"]] = r
+
+    out = {"vip": [], "high_potential": [], "at_risk": [], "churned": [], "new": []}
+    for c in customers:
+        s = stats.get(c["customer_id"], {})
+        last_order = s.get("last_order")
+        if last_order and last_order.tzinfo is None:
+            last_order = last_order.replace(tzinfo=timezone.utc)
+        order_count = s.get("order_count", 0)
+        total_spent = s.get("total_spent", 0)
+        avg_order = s.get("avg_order", 0)
+        days_since = (now - last_order).days if last_order else 9999
+
+        scored = {
+            **c,
+            "order_count": order_count,
+            "total_spent": total_spent,
+            "avg_order_value": round(avg_order, 0),
+            "days_since_last_order": days_since,
+        }
+
+        if order_count == 0:
+            out["new"].append(scored)
+        elif total_spent >= 1_000_000 and order_count >= 5 and days_since <= 14:
+            out["vip"].append(scored)
+        elif days_since >= 30 and order_count >= 2:
+            out["at_risk"].append(scored)
+        elif days_since >= 60:
+            out["churned"].append(scored)
+        elif order_count >= 2 and avg_order >= 100_000:
+            out["high_potential"].append(scored)
+        else:
+            out["new"].append(scored)
+
+    return {
+        "counts": {k: len(v) for k, v in out.items()},
+        "vip": out["vip"][:50],
+        "high_potential": out["high_potential"][:50],
+        "at_risk": out["at_risk"][:50],
+        "churned": out["churned"][:50],
+        "new": out["new"][:50],
+    }
+
+
+@api.get("/insights/ai-suggest")
+async def insight_ai_suggest(user: dict = Depends(get_current_user)):
+    """Use LLM to generate smart marketing/operational suggestions."""
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="LLM key chưa cấu hình")
+
+    # Gather context
+    scoring = await insight_customer_scoring(user)
+    combos = await insight_combos(min_count=2, user=user)
+    forecast = await production_forecast(days_ahead=1, user=user)
+
+    context = f"""DỮ LIỆU NỘI BỘ:
+- Khách hàng VIP: {scoring['counts']['vip']}
+- Khách có tiềm năng: {scoring['counts']['high_potential']}
+- Khách nguy cơ rời bỏ: {scoring['counts']['at_risk']}
+- Khách đã rời: {scoring['counts']['churned']}
+- Khách mới: {scoring['counts']['new']}
+
+5 cặp sản phẩm hay mua chung:
+{chr(10).join([f"  - {c['name_a']} + {c['name_b']}: {c['count']} đơn" for c in combos['items'][:5]]) or '  (chưa đủ data)'}
+
+Top 5 sản phẩm cần sản xuất ngày mai ({forecast['target_day_of_week']}):
+{chr(10).join([f"  - {f['name']}: gợi ý {f['recommended_production']} {f['unit']}" for f in forecast['forecasts'][:5]]) or '  (chưa đủ data)'}
+"""
+
+    system = """Bạn là chuyên gia kinh doanh F&B. Phân tích dữ liệu và đưa ra 3-5 gợi ý hành động NGAY tuần này.
+Định dạng JSON đơn giản:
+{
+  "summary": "1-2 câu tổng quan",
+  "actions": [
+    {"title": "...", "detail": "...", "priority": "high|medium|low"}
+  ]
+}
+Chỉ trả về JSON, không markdown."""
+
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"insights_{user['user_id']}_{datetime.now(timezone.utc).strftime('%Y%m%d')}",
+            system_message=system,
+        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+        response = await chat.send_message(UserMessage(text=context))
+        # Try parse JSON from response
+        try:
+            text = response.strip()
+            if text.startswith("```"):
+                text = text.split("```")[1].lstrip("json").strip()
+            parsed = json.loads(text)
+            return {"raw": response, "parsed": parsed}
+        except Exception:
+            return {"raw": response, "parsed": None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI error: {str(e)[:200]}")
 
 
 # ===========================================================================
@@ -984,13 +1341,15 @@ async def delete_customer(customer_id: str, user: dict = Depends(require_permiss
 
 @api.get("/customers/care")
 async def customer_care(days: int = 14, user: dict = Depends(require_permission("customers.view"))):
-    """List customers who haven't ordered in N+ days, plus all customers sorted by last order desc (those who ordered up top)."""
+    """days=0 means 'has not ordered TODAY'. days>0 means hasn't ordered in N+ days."""
     now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(days=days)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    cutoff = today_start if days == 0 else (now - timedelta(days=days))
     customers = await db.customers.find({}, {"_id": 0}).limit(2000).to_list(None)
 
     pipeline = [
-        {"$match": {"customer_id": {"$ne": None}}},
+        {"$match": {"customer_id": {"$ne": None}, "status": {"$ne": "cancelled"}}},
         {"$group": {
             "_id": "$customer_id",
             "last_order": {"$max": "$created_at"},
@@ -1002,19 +1361,45 @@ async def customer_care(days: int = 14, user: dict = Depends(require_permission(
     async for r in db.orders.aggregate(pipeline):
         last_orders[r["_id"]] = r
 
-    # Build enriched list
+    # Today + month aggregates
+    today_pipeline = [
+        {"$match": {"created_at": {"$gte": today_start}, "status": {"$ne": "cancelled"}, "customer_id": {"$ne": None}}},
+        {"$group": {"_id": "$customer_id", "today_orders": {"$sum": 1}, "today_spent": {"$sum": "$total"}}},
+    ]
+    today_stats = {}
+    async for r in db.orders.aggregate(today_pipeline):
+        today_stats[r["_id"]] = r
+
+    month_pipeline = [
+        {"$match": {"created_at": {"$gte": month_start}, "status": {"$ne": "cancelled"}, "customer_id": {"$ne": None}}},
+        {"$group": {"_id": "$customer_id", "month_orders": {"$sum": 1}, "month_spent": {"$sum": "$total"}}},
+    ]
+    month_stats = {}
+    async for r in db.orders.aggregate(month_pipeline):
+        month_stats[r["_id"]] = r
+
     enriched = []
     for c in customers:
         lo = last_orders.get(c["customer_id"], {})
+        ts = today_stats.get(c["customer_id"], {})
+        ms = month_stats.get(c["customer_id"], {})
+        last_order = lo.get("last_order")
+        if days == 0:
+            needs_care = ts.get("today_orders", 0) == 0
+        else:
+            needs_care = (last_order is None) or (last_order and last_order < cutoff)
         enriched.append({
             **c,
-            "last_order": lo.get("last_order"),
+            "last_order": last_order,
             "order_count": lo.get("order_count", 0),
             "total_spent_agg": lo.get("total_spent", 0),
-            "needs_care": (lo.get("last_order") is None) or (lo.get("last_order") and lo["last_order"] < cutoff),
+            "today_orders": ts.get("today_orders", 0),
+            "today_spent": ts.get("today_spent", 0),
+            "month_orders": ms.get("month_orders", 0),
+            "month_spent": ms.get("month_spent", 0),
+            "needs_care": needs_care,
         })
 
-    # Sort: ones who ordered (recently) first, then those needing care
     enriched.sort(key=lambda x: (x["last_order"] is None, -(x["last_order"].timestamp() if x["last_order"] else 0)))
 
     return {

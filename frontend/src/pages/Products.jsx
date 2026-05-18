@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { Plus, Search, Edit, Trash2, Upload, Image as ImageIcon } from "lucide-react";
+import { Plus, Search, Edit, Trash2, Upload, Image as ImageIcon, PackagePlus } from "lucide-react";
 import api from "../lib/api";
 import { Card, CardContent } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -8,14 +8,15 @@ import { Badge } from "../components/ui/Badge";
 import { Modal } from "../components/ui/Modal";
 import { toast } from "../components/ui/Toast";
 import { useI18n } from "../contexts/I18nContext";
-import { formatVND } from "../lib/utils";
+import { formatVND, formatDate } from "../lib/utils";
 
 const EMPTY = {
   name: "",
   sku: "",
-  category: "Bánh bao mặn",
+  category: "Bánh bao",
   description: "",
   price: 0,
+  wholesale_price: 0,
   cost: 0,
   stock: 0,
   low_stock_threshold: 10,
@@ -23,6 +24,20 @@ const EMPTY = {
   image_url: "",
   is_active: true,
   variants: [],
+  expiration_days: 3,
+};
+
+const EMPTY_STOCK = {
+  kind: "product",
+  target_id: "",
+  quantity: 0,
+  unit_price: 0,
+  supplier_id: "",
+  supplier_name: "",
+  production_date: new Date().toISOString().slice(0, 10),
+  expiration_date: "",
+  batch_code: "",
+  notes: "",
 };
 
 const MAX_IMAGE_BYTES = 500 * 1024; // 500 KB
@@ -45,6 +60,9 @@ export default function Products() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY);
+  const [stockOpen, setStockOpen] = useState(false);
+  const [stockForm, setStockForm] = useState(EMPTY_STOCK);
+  const [suppliers, setSuppliers] = useState([]);
   const fileInputRef = useRef(null);
 
   const load = async () => {
@@ -56,7 +74,11 @@ export default function Products() {
     setItems(data);
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [category, lowOnly]);
+  useEffect(() => {
+    load();
+    api.get("/suppliers").then((r) => setSuppliers(r.data)).catch(() => {});
+    /* eslint-disable-next-line */
+  }, [category, lowOnly]);
 
   const openCreate = () => {
     setEditing(null);
@@ -215,6 +237,9 @@ export default function Products() {
                     </span>
                   </span>
                   <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" onClick={() => openStockIn(p)} data-testid={`product-stockin-${p.product_id}`} title="Nhập kho">
+                      <PackagePlus size={14} className="text-bamboo" />
+                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => openEdit(p)} data-testid={`product-edit-${p.product_id}`}>
                       <Edit size={14} />
                     </Button>
@@ -223,6 +248,11 @@ export default function Products() {
                     </Button>
                   </div>
                 </div>
+                {p.latest_expiration_date && (
+                  <div className="text-[11px] text-ink-muted mt-1 flex items-center gap-1">
+                    HSD lô gần nhất: <span className="font-medium text-bamboo">{formatDate(p.latest_expiration_date)}</span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           );
@@ -304,6 +334,14 @@ export default function Products() {
               <Label>{t("products.unit")}</Label>
               <Input value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
             </div>
+            <div>
+              <Label>HSD mặc định (ngày)</Label>
+              <Input type="number" min={1} value={form.expiration_days} onChange={(e) => setForm({ ...form, expiration_days: Number(e.target.value) })} placeholder="3" data-testid="product-form-expiration-days" />
+            </div>
+            <div>
+              <Label>Giá sỉ (VND)</Label>
+              <Input type="number" min={0} value={form.wholesale_price} onChange={(e) => setForm({ ...form, wholesale_price: Number(e.target.value) })} />
+            </div>
           </div>
           <div>
             <Label>{t("products.description")}</Label>
@@ -312,6 +350,51 @@ export default function Products() {
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" type="button" onClick={() => setOpen(false)}>{t("common.cancel")}</Button>
             <Button type="submit" data-testid="product-form-submit">{t("common.save")}</Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Stock-in for product (nhập kho ngày mới) */}
+      <Modal open={stockOpen} onClose={() => setStockOpen(false)} title={`Nhập kho sản phẩm: ${stockForm.target_name || ""}`} size="lg" testId="product-stockin-modal">
+        <form onSubmit={submitStockIn} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Số lượng *</Label>
+              <Input type="number" min={1} required value={stockForm.quantity} onChange={(e) => setStockForm({ ...stockForm, quantity: Number(e.target.value) })} data-testid="product-stockin-qty" />
+            </div>
+            <div>
+              <Label>Đơn giá (nếu có)</Label>
+              <Input type="number" min={0} value={stockForm.unit_price} onChange={(e) => setStockForm({ ...stockForm, unit_price: Number(e.target.value) })} />
+            </div>
+            <div>
+              <Label>Ngày sản xuất</Label>
+              <Input type="date" value={stockForm.production_date} onChange={(e) => setStockForm({ ...stockForm, production_date: e.target.value })} data-testid="product-stockin-prod-date" />
+            </div>
+            <div>
+              <Label>HSD</Label>
+              <Input type="date" value={stockForm.expiration_date} onChange={(e) => setStockForm({ ...stockForm, expiration_date: e.target.value })} placeholder="Tự tính" data-testid="product-stockin-exp-date" />
+            </div>
+            <div className="col-span-2">
+              <Label>Nhà cung cấp (tùy chọn)</Label>
+              <Select value={stockForm.supplier_id} onChange={(e) => {
+                const s = suppliers.find((x) => x.supplier_id === e.target.value);
+                setStockForm({ ...stockForm, supplier_id: e.target.value, supplier_name: s?.name || "" });
+              }} data-testid="product-stockin-supplier">
+                <option value="">— Chọn NCC —</option>
+                {suppliers.map((s) => <option key={s.supplier_id} value={s.supplier_id}>{s.name}</option>)}
+              </Select>
+              {stockForm.supplier_id && stockForm.unit_price > 0 && (
+                <div className="text-xs text-amber-700 mt-1">💡 Sẽ tự ghi nhận <strong>{formatVND(stockForm.unit_price * stockForm.quantity)}</strong> vào công nợ NCC</div>
+              )}
+            </div>
+            <div className="col-span-2">
+              <Label>{t("common.notes")}</Label>
+              <Textarea value={stockForm.notes} onChange={(e) => setStockForm({ ...stockForm, notes: e.target.value })} />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" type="button" onClick={() => setStockOpen(false)}>{t("common.cancel")}</Button>
+            <Button type="submit" data-testid="product-stockin-submit">Nhập kho</Button>
           </div>
         </form>
       </Modal>

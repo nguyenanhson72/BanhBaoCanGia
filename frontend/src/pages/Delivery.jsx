@@ -26,11 +26,12 @@ export default function Delivery() {
   const [filterDate, setFilterDate] = useState(new Date().toISOString().slice(0, 10));
 
   const load = async () => {
-    const [o, s] = await Promise.all([
+    const [o1, o2, s] = await Promise.all([
+      api.get("/orders", { params: { status: "new", date_from: filterDate, date_to: filterDate } }),
       api.get("/orders", { params: { status: "delivering", date_from: filterDate, date_to: filterDate } }),
       api.get("/users/shippers"),
     ]);
-    setOrders(o.data);
+    setOrders([...(o1.data || []), ...(o2.data || [])]);
     setShippers(s.data);
   };
 
@@ -128,44 +129,61 @@ export default function Delivery() {
                 </thead>
                 <tbody>
                   {filterByShipperOrders(g.orders).map((o) => (
-                    <tr key={o.order_id} className="border-t border-border" data-testid={`delivery-row-${o.order_id}`}>
-                      <td className="py-2.5 px-4 font-mono text-xs">{o.order_code}</td>
-                      <td className="py-2.5 px-4">
-                        <div className="font-medium">{o.customer_name}</div>
-                        {o.customer_phone && (
-                          <a href={`tel:${o.customer_phone}`} className="text-xs text-bamboo hover:underline flex items-center gap-1">
-                            <Phone size={10} /> {o.customer_phone}
-                          </a>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-4 text-xs">
-                        <div className="flex items-center gap-1">
-                          <MapPin size={10} className="text-ink-muted shrink-0" />
-                          {o.customer_district || "—"}
-                        </div>
-                        <div className="text-[10px] text-ink-muted">{o.customer_address}</div>
-                      </td>
-                      <td className="py-2.5 px-4 text-right font-mono">{formatVND(o.total)}</td>
-                      <td className="py-2.5 px-4">
-                        <Select
-                          value={o.assigned_shipper_id || ""}
-                          onChange={(e) => assignShipper(o.order_id, e.target.value)}
-                          className="h-8 text-xs min-w-[120px]"
-                          data-testid={`delivery-assign-${o.order_id}`}
-                        >
-                          <option value="">— Chưa phân —</option>
-                          {shippers.map((s) => <option key={s.user_id} value={s.user_id}>{s.name}</option>)}
-                        </Select>
-                      </td>
-                      <td className="py-2.5 px-4 text-xs text-ink-muted">{formatDateTime(o.created_at)}</td>
-                      <td className="py-2.5 px-4 text-right">
-                        <Link to={`/orders/${o.order_id}`}>
-                          <Button variant="ghost" size="sm" data-testid={`delivery-view-${o.order_id}`}>
-                            <Printer size={14} />
-                          </Button>
-                        </Link>
-                      </td>
-                    </tr>
+                    <React.Fragment key={o.order_id}>
+                      <tr className="border-t border-border" data-testid={`delivery-row-${o.order_id}`}>
+                        <td className="py-2.5 px-4 font-mono text-xs">{o.order_code}</td>
+                        <td className="py-2.5 px-4">
+                          <div className="font-medium">{o.customer_name}</div>
+                          {o.customer_phone && (
+                            <a href={`tel:${o.customer_phone}`} className="text-xs text-bamboo hover:underline flex items-center gap-1">
+                              <Phone size={10} /> {o.customer_phone}
+                            </a>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-4 text-xs">
+                          <div className="flex items-center gap-1">
+                            <MapPin size={10} className="text-ink-muted shrink-0" />
+                            {o.customer_district || "—"}
+                          </div>
+                          <div className="text-[10px] text-ink-muted">{o.customer_address}</div>
+                        </td>
+                        <td className="py-2.5 px-4 text-right font-mono">{formatVND(o.total)}</td>
+                        <td className="py-2.5 px-4">
+                          <Select
+                            value={o.assigned_shipper_id || ""}
+                            onChange={(e) => assignShipper(o.order_id, e.target.value)}
+                            className="h-8 text-xs min-w-[120px]"
+                            data-testid={`delivery-assign-${o.order_id}`}
+                          >
+                            <option value="">— Chưa phân —</option>
+                            {shippers.map((s) => <option key={s.user_id} value={s.user_id}>{s.name}</option>)}
+                          </Select>
+                        </td>
+                        <td className="py-2.5 px-4 text-xs text-ink-muted">{formatDateTime(o.created_at)}</td>
+                        <td className="py-2.5 px-4 text-right">
+                          <Link to={`/orders/${o.order_id}`}>
+                            <Button variant="ghost" size="sm" data-testid={`delivery-view-${o.order_id}`}>
+                              <Printer size={14} />
+                            </Button>
+                          </Link>
+                        </td>
+                      </tr>
+                      <tr className="border-t border-dotted border-border bg-cream/10">
+                        <td colSpan={7} className="py-1.5 px-4 text-xs text-ink-secondary">
+                          <span className="font-semibold">Hàng cần giao:</span>{" "}
+                          {o.items?.map((it, i) => (
+                            <span key={i} className="inline-block mr-2">
+                              {it.name} <span className="text-ink-muted">×{it.quantity}</span>
+                              {i < o.items.length - 1 ? "," : ""}
+                            </span>
+                          ))}
+                          {o.note && <span className="ml-3 italic text-ink-muted">· Ghi chú: {o.note}</span>}
+                          {o.payment_method && (
+                            <span className="ml-3"><Badge variant={o.payment_method === "debt" ? "lowstock" : "regular"}>{o.payment_method === "debt" ? "Công nợ" : o.payment_method === "cash" ? "Tiền mặt" : o.payment_method === "transfer" ? "Chuyển khoản" : o.payment_method}</Badge></span>
+                          )}
+                        </td>
+                      </tr>
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>

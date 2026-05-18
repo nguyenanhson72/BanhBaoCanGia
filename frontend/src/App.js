@@ -12,8 +12,10 @@ import NewOrder from "./pages/NewOrder";
 import OrderDetail from "./pages/OrderDetail";
 import Products from "./pages/Products";
 import Materials from "./pages/Materials";
+import Production from "./pages/Production";
 import Customers from "./pages/Customers";
 import CustomerCare from "./pages/CustomerCare";
+import Insights from "./pages/Insights";
 import Suppliers from "./pages/Suppliers";
 import Debts from "./pages/Debts";
 import Delivery from "./pages/Delivery";
@@ -56,8 +58,10 @@ function AppRouter() {
         <Route path="/orders/:id" element={<OrderDetail />} />
         <Route path="/products" element={<Products />} />
         <Route path="/materials" element={<Materials />} />
+        <Route path="/production" element={<Production />} />
         <Route path="/customers" element={<Customers />} />
         <Route path="/customer-care" element={<CustomerCare />} />
+        <Route path="/insights" element={<Insights />} />
         <Route path="/suppliers" element={<Suppliers />} />
         <Route path="/debts" element={<Debts />} />
         <Route path="/delivery" element={<Delivery />} />

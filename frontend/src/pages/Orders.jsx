@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Search, Plus, Eye, Printer, Copy } from "lucide-react";
 import api from "../lib/api";
 import { Card, CardContent } from "../components/ui/Card";
@@ -15,13 +15,14 @@ import { formatVND, formatDateTime } from "../lib/utils";
 export default function Orders() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [orders, setOrders] = useState([]);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [payment, setPayment] = useState("");
   const [type, setType] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(searchParams.get("date_from") || "");
+  const [dateTo, setDateTo] = useState(searchParams.get("date_to") || "");
   const [sort, setSort] = useState("created_at");
   const [direction, setDirection] = useState("desc");
   const [loading, setLoading] = useState(false);
