@@ -36,9 +36,12 @@ export async function exportPDF(elementId, filename = "document.pdf", options = 
     filename,
     image: { type: "jpeg", quality: 0.95 },
     html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: "#ffffff" },
-    jsPDF: isThermal
-      ? { unit: "mm", format: [80, 297], orientation: "portrait" }
-      : { unit: "mm", format: "a4", orientation: "portrait" },
+    jsPDF:
+      options.format === "80mm"
+        ? { unit: "mm", format: [80, 297], orientation: "portrait" }
+        : options.format === "a5l"
+        ? { unit: "mm", format: "a5", orientation: "landscape" }
+        : { unit: "mm", format: "a4", orientation: "portrait" },
     pagebreak: { mode: ["avoid-all", "css", "legacy"] },
   };
 

@@ -16,23 +16,33 @@ export default function NewOrder() {
   const navigate = useNavigate();
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
+  const [shippers, setShippers] = useState([]);
   const [customerId, setCustomerId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
+  const [customerDistrict, setCustomerDistrict] = useState("");
+  const [orderType, setOrderType] = useState("retail");
   const [items, setItems] = useState([]);
   const [payment, setPayment] = useState("cash");
   const [discount, setDiscount] = useState(0);
   const [discountPercent, setDiscountPercent] = useState(0);
   const [shipping, setShipping] = useState(0);
+  const [shipperId, setShipperId] = useState("");
+  const [dueDate, setDueDate] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const [c, p] = await Promise.all([api.get("/customers"), api.get("/products")]);
+      const [c, p, s] = await Promise.all([
+        api.get("/customers"),
+        api.get("/products"),
+        api.get("/users/shippers").catch(() => ({ data: [] })),
+      ]);
       setCustomers(c.data);
       setProducts(p.data);
+      setShippers(s.data);
     })();
   }, []);
 
@@ -42,6 +52,14 @@ export default function NewOrder() {
       setCustomerName(c.name);
       setCustomerPhone(c.phone || "");
       setCustomerAddress(c.address || "");
+      setCustomerDistrict(c.district || "");
+      if (c.type === "wholesale") setOrderType("wholesale");
+      // Auto due date based on max_debt_days
+      if (c.max_debt_days > 0 && payment === "debt") {
+        const d = new Date();
+        d.setDate(d.getDate() + c.max_debt_days);
+        setDueDate(d.toISOString().slice(0, 10));
+      }
     }
   };
 
@@ -96,6 +114,8 @@ export default function NewOrder() {
         customer_name: customerName,
         customer_phone: customerPhone,
         customer_address: customerAddress,
+        customer_district: customerDistrict,
+        type: orderType,
         items: items.map((it) => ({
           product_id: it.product_id,
           name: it.name,
@@ -107,6 +127,8 @@ export default function NewOrder() {
         discount: Number(discount) || 0,
         discount_percent: Number(discountPercent) || 0,
         shipping_fee: Number(shipping) || 0,
+        assigned_shipper_id: shipperId || "",
+        due_date: dueDate || "",
         note,
       };
       const { data } = await api.post("/orders", payload);
@@ -177,6 +199,25 @@ export default function NewOrder() {
                   placeholder="Tự động điền khi chọn khách"
                   data-testid="new-order-customer-address"
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>{t("common.district")}</Label>
+                  <Input
+                    value={customerDistrict}
+                    onChange={(e) => setCustomerDistrict(e.target.value)}
+                    placeholder="VD: Quận 1"
+                    data-testid="new-order-customer-district"
+                  />
+                </div>
+                <div>
+                  <Label>{t("orders.type")}</Label>
+                  <Select value={orderType} onChange={(e) => setOrderType(e.target.value)} data-testid="new-order-type">
+                    <option value="retail">{t("orders.retail")}</option>
+                    <option value="wholesale">{t("orders.wholesale")}</option>
+                    <option value="delivery">{t("orders.delivery")}</option>
+                  </Select>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -273,8 +314,27 @@ export default function NewOrder() {
                 <Select value={payment} onChange={(e) => setPayment(e.target.value)} data-testid="new-order-payment">
                   <option value="cash">{t("payment.cash")}</option>
                   <option value="transfer">{t("payment.transfer")}</option>
-                  <option value="cod">{t("payment.cod")}</option>
+                  <option value="debt">{t("payment.debt")}</option>
+                  <option value="ewallet">{t("payment.ewallet")}</option>
                   <option value="card">{t("payment.card")}</option>
+                </Select>
+              </div>
+              {payment === "debt" && (
+                <div>
+                  <Label>{t("orders.dueDate")}</Label>
+                  <Input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    data-testid="new-order-due-date"
+                  />
+                </div>
+              )}
+              <div>
+                <Label>{t("orders.shipper")} (tùy chọn)</Label>
+                <Select value={shipperId} onChange={(e) => setShipperId(e.target.value)} data-testid="new-order-shipper">
+                  <option value="">— Không gán —</option>
+                  {shippers.map((s) => <option key={s.user_id} value={s.user_id}>{s.name}</option>)}
                 </Select>
               </div>
               <div className="grid grid-cols-2 gap-3">

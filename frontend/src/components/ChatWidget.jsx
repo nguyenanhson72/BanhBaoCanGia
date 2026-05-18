@@ -1,8 +1,15 @@
 import React, { useState, useRef, useEffect } from "react";
-import { MessageCircle, X, Send, Sparkles } from "lucide-react";
+import { MessageCircle, X, Send, Sparkles, Settings as SettingsIcon } from "lucide-react";
 import { useI18n } from "../contexts/I18nContext";
 import api from "../lib/api";
 import { cn } from "../lib/utils";
+
+const MODEL_OPTIONS = [
+  { value: "claude", label: "Claude Sonnet 4.5", provider: "Anthropic" },
+  { value: "gpt-5.2", label: "GPT-5.2 (mới nhất)", provider: "OpenAI" },
+  { value: "gpt-5.1", label: "GPT-5.1", provider: "OpenAI" },
+  { value: "gpt-4o", label: "GPT-4o", provider: "OpenAI" },
+];
 
 function getSessionId() {
   let sid = localStorage.getItem("chat_session_id");
@@ -19,8 +26,14 @@ export default function ChatWidget() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [model, setModel] = useState(() => localStorage.getItem("chat_model") || "claude");
+  const [showSettings, setShowSettings] = useState(false);
   const scrollRef = useRef(null);
   const sessionIdRef = useRef(getSessionId());
+
+  useEffect(() => {
+    localStorage.setItem("chat_model", model);
+  }, [model]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -36,19 +49,16 @@ export default function ChatWidget() {
       const { data } = await api.post("/chat", {
         session_id: sessionIdRef.current,
         message: content,
+        model,
       });
       setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
     } catch (e) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            lang === "vi"
-              ? "Xin lỗi, hiện chưa kết nối được với AI. Vui lòng thử lại sau."
-              : "Sorry, AI service is unavailable. Please try again later.",
-        },
-      ]);
+      setMessages((prev) => [...prev, {
+        role: "assistant",
+        content: lang === "vi"
+          ? "Xin lỗi, hiện chưa kết nối được với AI. Vui lòng thử lại sau."
+          : "Sorry, AI service is unavailable. Please try again later.",
+      }]);
     } finally {
       setLoading(false);
     }
@@ -90,8 +100,16 @@ export default function ChatWidget() {
             </div>
             <div className="flex-1">
               <div className="font-heading font-semibold text-sm">{t("chat.title")}</div>
-              <div className="text-[11px] text-white/70">{t("chat.subtitle")}</div>
+              <div className="text-[11px] text-white/70">{MODEL_OPTIONS.find((m) => m.value === model)?.label || "AI"}</div>
             </div>
+            <button
+              onClick={() => setShowSettings((v) => !v)}
+              className="p-1 rounded hover:bg-white/10"
+              data-testid="chat-settings"
+              aria-label="Settings"
+            >
+              <SettingsIcon size={16} />
+            </button>
             <button
               onClick={() => setOpen(false)}
               className="p-1 rounded hover:bg-white/10"
@@ -101,6 +119,30 @@ export default function ChatWidget() {
               <X size={16} />
             </button>
           </div>
+
+          {showSettings && (
+            <div className="px-4 py-3 bg-cream/60 border-b border-border">
+              <div className="text-xs font-medium text-ink-secondary mb-2">{t("chat.model")}</div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {MODEL_OPTIONS.map((m) => (
+                  <button
+                    key={m.value}
+                    onClick={() => setModel(m.value)}
+                    className={cn(
+                      "text-left text-xs px-2.5 py-1.5 rounded border transition-colors",
+                      model === m.value
+                        ? "bg-bamboo text-white border-bamboo"
+                        : "bg-white border-border text-ink hover:border-bamboo/60"
+                    )}
+                    data-testid={`chat-model-${m.value}`}
+                  >
+                    <div className="font-medium leading-tight">{m.label}</div>
+                    <div className="text-[10px] opacity-70 leading-tight">{m.provider}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Messages */}
           <div

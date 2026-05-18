@@ -1,0 +1,57 @@
+{
+  "summary": "Iteration 5 — Backend-only validation of the v2 rewrite (settings, materials/stock, customers care/export/template/import, suppliers v2, orders new statuses + duplicate + assign-shipper, debts customer/supplier/payments, users/shippers, RBAC, AI chat, legacy migration). New focused suite /app/backend/tests/test_v2.py with 38 tests covers every item in the review request. Result: 35/38 PASS (92.1%). The 3 failures are all the SAME ROOT CAUSE: DEFAULT_PERMISSIONS['shipper'] in server.py (line ~104-106) currently INCLUDES 'customers.view' which contradicts the spec ('a shipper user trying to GET /api/customers should fail (lacks customers.view in shipper default)'). All other v2 functionality — settings persistence, material+stock_in flow, customers/care needs_care logic, Excel export/template/import round-trip, supplier new fields, order with payment_method=debt + discount_percent + auto due_date from customer.max_debt_days, new status vocab (new→processing→delivering→debt_pending), order duplicate (new id+code, status=new), assign-shipper, /users/shippers, debts/customers aggregated totals, partial collect (direction=in, remaining/paid/is_paid updated correctly), pay-supplier (direction=out), debt payments history, AI chat with both Claude Sonnet 4.5 and OpenAI gpt-5.2, legacy cod→debt and preparing→processing migration, no _id leak in any response — all verified working end-to-end against the preview backend.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/system/permissions (and any endpoint guarded by require_permission('customers.view'))",
+        "issue": "DEFAULT_PERMISSIONS['shipper'] in server.py lines 104-106 contains 'customers.view'. Per the review request, the shipper default should NOT include customers.view — a shipper hitting GET /api/customers should return 403, but it currently returns 200. Fix: remove 'customers.view' from the shipper list (it is already exposed via 'delivery.view' for the delivery module).",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/system/reset-demo",
+        "issue": "Missing the 'confirm' query param returns 422 (FastAPI validation) instead of 400. The endpoint only returns 400 when confirm is present but != 'YES_DELETE'. Cosmetic — consider making confirm Optional and returning a uniform 400."
+      },
+      {
+        "endpoint": "GET /api/debts/customers",
+        "issue": "Response key for grand total is 'total' (numeric) and there is no explicit 'total_debt' alias. Frontend should bind to 'total' (verified during testing); just flagging for naming consistency with overdue_total / due_soon_total."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v2.py",
+    "/app/test_reports/pytest/v2_iter5.xml"
+  ],
+  "action_items": [
+    "Remove 'customers.view' from DEFAULT_PERMISSIONS['shipper'] in /app/backend/server.py (line ~106). Shipper module should consume customer data via delivery endpoints, not /api/customers.",
+    "(Optional) Make reset-demo's confirm param Optional[str]=None so a missing param returns a clean 400 instead of FastAPI 422."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 1873 lines — please split into routers (system/auth/settings/materials/customers/orders/debts/users/reports/chat) and a separate models/permissions module. Maintainability risk is high.",
+    "Order create endpoint silently drops invalid due_date (try/except sets to None). Consider returning 400 on bad date format instead of falling back to customer.max_debt_days.",
+    "/api/orders/{id}/duplicate copies the source order via spread (**src) which carries the stale _id of the parent in memory; current code pops _id at the very end which works, but safer to project _id out at find_one time. Minor.",
+    "Customer import dedupe key is (name, phone). Imports with empty phone collide on the first-imported customer (phone=''). Suggest dedupe on phone-only when phone is non-empty.",
+    "DEFAULT_PERMISSIONS['shipper'] mismatches the documented spec — confirmed the actual root cause of the 3 failing tests.",
+    "/api/chat raises 500 wrapped exception on LLM error which leaks first 200 chars of upstream error — fine for dev, consider hiding in prod.",
+    "Many endpoints use require_permission, but POST/PUT/DELETE on suppliers use 'suppliers.create/edit/delete' — these are not in the staff/coordinator defaults, so RBAC is correctly enforced (verified)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v2.py (new)"
+  ],
+  "success_rate": {
+    "backend": "35/38 (92.1%) — all 3 failures share one root cause (shipper default permissions include customers.view)",
+    "frontend": "Not tested (backend-only request)"
+  },
+  "test_credentials": "admin@banhbao.vn / admin123 (read from /app/memory/test_credentials.md). Note: staff@banhbao.vn is documented in test_credentials.md but is NOT seeded by server.seed_data (only admin is seeded). The old /app/backend/tests/backend_test.py and /app/backend/tests/test_improvements.py reference legacy v1 endpoints (status='preparing', payment_method='cod', staff user) — they are now obsolete after v2 rewrite and should be removed by main agent. test_v2.py creates its own test users on the fly (shipper) and cleans up.",
+  "seed_data_creation": "All test artifacts (customers, products, materials, suppliers, orders, shipper user) are prefixed TEST_ and cleaned up by the suite. No long-lived seed data remains.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_v2.py -v. Once main agent removes 'customers.view' from DEFAULT_PERMISSIONS['shipper'] in server.py (~line 106), all 38 tests should pass. The legacy v1 test files (backend_test.py, test_improvements.py) are obsolete — they test old endpoints/statuses that no longer exist (status='preparing', payment_method='cod', staff user). Recommend deleting them. Frontend testing was deferred to next iteration per the request. Backend URL: https://bao-cms-admin.preview.emergentagent.com.",
+  "rca of the issue": "Root cause for all 3 failing tests is a single line in /app/backend/server.py DEFAULT_PERMISSIONS dict: 'shipper': ['orders.view', 'delivery.view', 'delivery.bill', 'customers.view'] — 'customers.view' must be removed. After removal: (a) /api/system/permissions defaults.shipper will no longer include customers.view, (b) a shipper user calling GET /api/customers (which requires 'customers.view') will get 403 from require_permission, (c) the shipper's /api/system/permissions 'mine' will likewise drop customers.view. No other code changes required. Reproduction: register a user with role='shipper', login, call GET /api/customers — currently returns 200 (bug) but should return 403."
+}

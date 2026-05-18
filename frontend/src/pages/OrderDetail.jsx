@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Truck, CheckCircle2, XCircle, Clock, Printer, Receipt } from "lucide-react";
+import { ArrowLeft, Truck, CheckCircle2, XCircle, Clock, Printer, Receipt, Copy, FileText } from "lucide-react";
 import api from "../lib/api";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -8,21 +8,27 @@ import { Badge } from "../components/ui/Badge";
 import { Textarea, Label } from "../components/ui/Input";
 import { toast } from "../components/ui/Toast";
 import PrintPreview from "../components/ui/PrintPreview";
-import { BillThermal, InvoiceA4 } from "../components/print/BillTemplates";
+import { BillThermal, InvoiceA4, InvoiceA5Landscape } from "../components/print/BillTemplates";
 import { useI18n } from "../contexts/I18nContext";
 import { formatVND, formatDateTime } from "../lib/utils";
 
 const STATUS_ICONS = {
+  new: Clock,
+  processing: Clock,
   preparing: Clock,
   delivering: Truck,
   delivered: CheckCircle2,
+  debt_pending: Clock,
   cancelled: XCircle,
 };
 
 const NEXT_STATUS = {
+  new: ["processing", "delivering", "cancelled"],
+  processing: ["delivering", "cancelled"],
   preparing: ["delivering", "cancelled"],
-  delivering: ["delivered", "cancelled"],
+  delivering: ["delivered", "debt_pending", "cancelled"],
   delivered: [],
+  debt_pending: ["delivered", "cancelled"],
   cancelled: [],
 };
 
@@ -31,21 +37,37 @@ export default function OrderDetail() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const [order, setOrder] = useState(null);
+  const [shop, setShop] = useState({});
   const [loading, setLoading] = useState(true);
   const [statusNote, setStatusNote] = useState("");
-  const [printMode, setPrintMode] = useState(null); // "80mm" | "a4" | null
+  const [printMode, setPrintMode] = useState(null); // "80mm" | "a4" | "a5"
 
   const load = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get(`/orders/${id}`);
-      setOrder(data);
+      const [o, s] = await Promise.all([
+        api.get(`/orders/${id}`),
+        api.get(`/settings`),
+      ]);
+      setOrder(o.data);
+      setShop(s.data || {});
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+
+  const duplicate = async () => {
+    if (!window.confirm("Nhân bản đơn này thành đơn mới với ngày hôm nay?")) return;
+    try {
+      const { data } = await api.post(`/orders/${id}/duplicate`);
+      toast({ title: "Đã tạo đơn mới " + data.order_code, variant: "success" });
+      navigate(`/orders/${data.order_id}`);
+    } catch (e) {
+      toast({ title: e?.response?.data?.detail || t("common.error"), variant: "error" });
+    }
+  };
 
   const updateStatus = async (newStatus) => {
     try {
@@ -73,13 +95,19 @@ export default function OrderDetail() {
             <p className="text-sm text-ink-muted">{formatDateTime(order.created_at)}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Badge variant={order.status} className="text-sm px-3 py-1">{t(`status.${order.status}`)}</Badge>
-          <Button variant="outline" size="sm" onClick={() => setPrintMode("80mm")} data-testid="order-print-80mm">
-            <Receipt size={14} /> In bill 80mm
+          <Button variant="outline" size="sm" onClick={duplicate} data-testid="order-duplicate">
+            <Copy size={14} /> {t("orders.duplicate")}
           </Button>
-          <Button size="sm" onClick={() => setPrintMode("a4")} data-testid="order-print-a4">
-            <Printer size={14} /> In hóa đơn A4
+          <Button variant="outline" size="sm" onClick={() => setPrintMode("80mm")} data-testid="order-print-80mm">
+            <Receipt size={14} /> Bill 80mm
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setPrintMode("a4")} data-testid="order-print-a4">
+            <FileText size={14} /> Hóa đơn A4
+          </Button>
+          <Button size="sm" onClick={() => setPrintMode("a5")} data-testid="order-print-a5">
+            <Printer size={14} /> A5 ngang
           </Button>
         </div>
       </div>
@@ -220,12 +248,18 @@ export default function OrderDetail() {
       <PrintPreview
         open={printMode !== null}
         onClose={() => setPrintMode(null)}
-        title={printMode === "80mm" ? "In bill 80mm" : "In hóa đơn A4"}
+        title={printMode === "80mm" ? "Bill 80mm" : printMode === "a5" ? "Hóa đơn A5 ngang" : "Hóa đơn A4"}
         printId="bill-print-area"
         pdfFilename={`bill-${order.order_code}.pdf`}
-        pdfFormat={printMode === "80mm" ? "80mm" : "a4"}
+        pdfFormat={printMode === "80mm" ? "80mm" : printMode === "a5" ? "a5l" : "a4"}
       >
-        {printMode === "80mm" ? <BillThermal order={order} /> : <InvoiceA4 order={order} />}
+        {printMode === "80mm" ? (
+          <BillThermal order={order} shop={shop} />
+        ) : printMode === "a5" ? (
+          <InvoiceA5Landscape order={order} shop={shop} />
+        ) : (
+          <InvoiceA4 order={order} shop={shop} />
+        )}
       </PrintPreview>
     </div>
   );

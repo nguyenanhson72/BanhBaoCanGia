@@ -11,8 +11,12 @@ import Orders from "./pages/Orders";
 import NewOrder from "./pages/NewOrder";
 import OrderDetail from "./pages/OrderDetail";
 import Products from "./pages/Products";
+import Materials from "./pages/Materials";
 import Customers from "./pages/Customers";
+import CustomerCare from "./pages/CustomerCare";
 import Suppliers from "./pages/Suppliers";
+import Debts from "./pages/Debts";
+import Delivery from "./pages/Delivery";
 import Users from "./pages/Users";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
@@ -21,11 +25,7 @@ function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
   const location = useLocation();
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-sm text-ink-muted">
-        Loading...
-      </div>
-    );
+    return <div className="min-h-screen flex items-center justify-center text-sm text-ink-muted">Loading...</div>;
   }
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
@@ -35,7 +35,6 @@ function ProtectedRoute({ children }) {
 
 function AppRouter() {
   const location = useLocation();
-  // Handle session_id from OAuth callback at render time (avoid useEffect race)
   if (location.hash?.includes("session_id=")) {
     return <AuthCallback />;
   }
@@ -56,8 +55,12 @@ function AppRouter() {
         <Route path="/orders/new" element={<NewOrder />} />
         <Route path="/orders/:id" element={<OrderDetail />} />
         <Route path="/products" element={<Products />} />
+        <Route path="/materials" element={<Materials />} />
         <Route path="/customers" element={<Customers />} />
+        <Route path="/customer-care" element={<CustomerCare />} />
         <Route path="/suppliers" element={<Suppliers />} />
+        <Route path="/debts" element={<Debts />} />
+        <Route path="/delivery" element={<Delivery />} />
         <Route path="/users" element={<Users />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/settings" element={<Settings />} />

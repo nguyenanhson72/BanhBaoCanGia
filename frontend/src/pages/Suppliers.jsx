@@ -8,7 +8,7 @@ import { Modal } from "../components/ui/Modal";
 import { toast } from "../components/ui/Toast";
 import { useI18n } from "../contexts/I18nContext";
 
-const EMPTY = { name: "", phone: "", email: "", address: "", rating: 5, notes: "" };
+const EMPTY = { name: "", code: "", group: "default", phone: "", email: "", address: "", district: "", city: "", tax_id: "", rating: 5, notes: "" };
 
 export default function Suppliers() {
   const { t } = useI18n();
@@ -30,7 +30,7 @@ export default function Suppliers() {
   const openCreate = () => { setEditing(null); setForm(EMPTY); setOpen(true); };
   const openEdit = (s) => {
     setEditing(s);
-    setForm({ name: s.name, phone: s.phone || "", email: s.email || "", address: s.address || "", rating: s.rating || 5, notes: s.notes || "" });
+    setForm({ ...EMPTY, ...s });
     setOpen(true);
   };
 
@@ -125,6 +125,14 @@ export default function Suppliers() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
+              <Label>Mã NCC</Label>
+              <Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="Tự sinh" />
+            </div>
+            <div>
+              <Label>Nhóm</Label>
+              <Input value={form.group} onChange={(e) => setForm({ ...form, group: e.target.value })} placeholder="default" />
+            </div>
+            <div>
               <Label>{t("common.phone")}</Label>
               <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
             </div>
@@ -132,10 +140,22 @@ export default function Suppliers() {
               <Label>{t("common.email")}</Label>
               <Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
             </div>
+            <div>
+              <Label>{t("common.district")}</Label>
+              <Input value={form.district} onChange={(e) => setForm({ ...form, district: e.target.value })} placeholder="VD: Quận Tân Bình" />
+            </div>
+            <div>
+              <Label>{t("common.city")}</Label>
+              <Input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="VD: TP.HCM" />
+            </div>
           </div>
           <div>
             <Label>{t("common.address")}</Label>
             <Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+          </div>
+          <div>
+            <Label>MST</Label>
+            <Input value={form.tax_id} onChange={(e) => setForm({ ...form, tax_id: e.target.value })} />
           </div>
           <div>
             <Label>{t("customers.rating")} (1-5)</Label>
