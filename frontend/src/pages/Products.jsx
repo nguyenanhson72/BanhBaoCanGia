@@ -158,6 +158,41 @@ export default function Products() {
     }
   };
 
+  const openStockIn = (p) => {
+    setStockForm({
+      ...EMPTY_STOCK,
+      kind: "product",
+      target_id: p.product_id,
+      target_name: p.name,
+      production_date: new Date().toISOString().slice(0, 10),
+    });
+    setStockOpen(true);
+  };
+
+  const submitStockIn = async (e) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        kind: "product",
+        target_id: stockForm.target_id,
+        quantity: Number(stockForm.quantity),
+        unit_price: Number(stockForm.unit_price) || 0,
+        supplier_id: stockForm.supplier_id || null,
+        supplier_name: stockForm.supplier_name || null,
+        production_date: stockForm.production_date || null,
+        expiration_date: stockForm.expiration_date || null,
+        batch_code: stockForm.batch_code || null,
+        notes: stockForm.notes || null,
+      };
+      await api.post("/stock/in", payload);
+      toast({ title: "Đã nhập kho", variant: "success" });
+      setStockOpen(false);
+      load();
+    } catch (err) {
+      toast({ title: err?.response?.data?.detail || t("common.error"), variant: "error" });
+    }
+  };
+
   const categories = Array.from(new Set(items.map((i) => i.category))).filter(Boolean);
 
   return (

@@ -1384,6 +1384,8 @@ async def customer_care(days: int = 14, user: dict = Depends(require_permission(
         ts = today_stats.get(c["customer_id"], {})
         ms = month_stats.get(c["customer_id"], {})
         last_order = lo.get("last_order")
+        if last_order and last_order.tzinfo is None:
+            last_order = last_order.replace(tzinfo=timezone.utc)
         if days == 0:
             needs_care = ts.get("today_orders", 0) == 0
         else:

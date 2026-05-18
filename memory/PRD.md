@@ -1,7 +1,7 @@
 # Bánh Bao Admin — Product Requirements Document (PRD)
 
 ## Original Problem Statement
-Internal management dashboard for a Vietnamese steamed bun (bánh bao) shop. Now a comprehensive multi-module system covering Sales, Inventory + Raw Materials, Customers + CRM, Debts (Customer + Supplier), Delivery management, Staff with granular RBAC, Reports, AI Assistant. Multi-language Vi/En.
+Internal management dashboard for a Vietnamese steamed bun (bánh bao) shop. Comprehensive multi-module system covering Sales, Inventory + Raw Materials, **Production with shifts + AI forecast**, Customers + **AI scoring/combo insights**, Debts (Customer + Supplier), Delivery management, Staff with granular RBAC, Reports, AI Assistant. Multi-language Vi/En.
 
 ## Tech Stack
 - Backend: FastAPI + Motor (MongoDB) + bcrypt + PyJWT + emergentintegrations (Claude Sonnet 4.5 + OpenAI GPT-5.2/5.1/4o) + pandas + openpyxl
@@ -18,97 +18,86 @@ Internal management dashboard for a Vietnamese steamed bun (bánh bao) shop. Now
 - **shipper** — orders.view + delivery.view + delivery.bill (no customers list)
 - **staff** — basic order/customer ops
 
-Each user can override role defaults with granular custom permissions (checkbox matrix).
-
-## Modules Implemented (v2.0)
+## Modules Implemented (v2.1)
 
 ### Phase 0 — Quick wins
-- COD → Công nợ rename (with backwards-compat migration)
-- Server time endpoint + live clock display
-- Sort ascending/descending toggle on lists
-- Order Duplicate (Copy / Mua lại) → creates new order with today's date
-- Reset demo data button (admin only)
+- COD → Công nợ rename, server time + live clock, sort toggle, order duplicate, reset demo
 
 ### Phase 1 — Settings & Bills
-- Shop settings: name, address, phone, email, website, tax_id
-- Bank info: bank name, account, holder → **VietQR auto-generated on bill**
-- Logo upload (base64, max 300KB)
-- 7 toggle checkboxes for fields on bill (logo/address/phone/email/website/tax_id/bank_qr)
-- Bill footer custom text
-- 3 print formats: **80mm thermal**, **A4 portrait**, **A5 landscape**
-- Each format renders shop info + QR + items + totals + purchase date + print date
+- Shop settings: name/address/phone/email/website/tax_id + bank info (VietQR auto-generated)
+- Logo upload base64 (≤500KB), 7 bill-field toggles, footer text
+- 3 print formats: **80mm thermal**, **A4 portrait**, **A5 landscape (compact)**
 
-### Phase 2 — Customers expansion
-- New fields: code (auto), nickname, tax_id (MST/CCCD), district, city, type (retail/wholesale), classification (custom), assigned_user_id, **max_debt_days**, **max_debt_amount**
-- Excel template download + Excel import (xlsx) + Excel export
-- Sort with-orders-first via Customer Care page
-- Customer Care page: list with "needs care" flagging (14+/30+/60+ days since last order), tel: links, district filter
+### Phase 2 — Customers
+- New fields: code/nickname/tax_id/district/city/type/classification/assigned_user_id/max_debt_days/max_debt_amount
+- Excel template/import/export
+- Customer Care page: needs-care flag, daily + monthly stats, tel: links, district filter
 
-### Phase 3 — Debts module
-- Customer debts aggregated: total / due_soon (≤3d) / overdue, drill-down per customer
-- Customer order detail: paid_amount, remaining_amount, days_to_due, overdue flag
-- Partial payment collection (`/debts/collect`)
-- Supplier debt tracking + `/debts/pay-supplier` (pay supplier)
+### Phase 3 — Debts
+- Customer debts aggregated (total / due_soon ≤3d / overdue) + drill-down
+- Partial collection, supplier debts + auto-create supplier debt when stock-in with unit_price>0
 - Payment history with direction (in/out)
-- 3 tabs UI: Công nợ KH / Công nợ NCC / Lịch sử thanh toán
 
-### Phase 4 — Raw Materials (NVL) + Stock
-- Materials CRUD with expiration_days, low_stock_threshold
-- Stock In endpoint with batch_code, production_date, expiration_date, supplier link, unit_price
-- Stock Adjust endpoint (damage/waste/lost/correction/expired)
-- Stock movements log (full history)
-- Expiring soon endpoint (FIFO basis)
-- Inventory report includes materials valuation
+### Phase 4 — Raw Materials + Stock
+- Materials CRUD + Stock In (batch_code, prod_date, exp_date, supplier, unit_price)
+- Stock Adjust (damage/waste/lost/correction/expired), movements log, expiring-soon FIFO
+
+### Phase 5 — Production (NEW v2.1)
+- Production batches CRUD with shift (morning/afternoon/evening/night)
+- POST increments product stock; DELETE rolls back
+- `GET /api/production/forecast?days_ahead=N` — AI-driven 28-day DOW lookback to recommend tomorrow's production qty per product with +10% buffer; sorted by needs_to_produce desc
 
 ### Phase 6 — RBAC
-- 7 roles + 38 granular permission keys
-- Permission matrix UI in Users page (checkbox grid grouped by category)
-- Sidebar items filtered by user permissions
-- Backend enforced via `require_permission()` dependency
+- 7 roles + 38 granular permission keys + matrix UI
 
-### Phase 7 — Delivery & Shippers
-- Shipper assignment on order
-- Delivery page groups orders by 4 shifts (Sáng/Trưa/Chiều/Tối) + by shipper
-- Quick assign dropdown per order
-- Date filter
-- Delivery bill print (uses standard A4/80mm templates)
+### Phase 7 — Delivery
+- Shipper assignment, grouped by 4 shifts (Sáng/Trưa/Chiều/Tối), date filter, delivery-bill print
 
-### Order workflow (new statuses)
-- new → processing → delivering → delivered
-- delivering → debt_pending (for debt orders)
-- Any → cancelled (restores stock)
+### Phase 8 — AI Insights (NEW v2.1)
+- `GET /api/insights/combos` — co-occurrence pairs of products (frequently bought together) with count + revenue
+- `GET /api/insights/customer-scoring` — 5 buckets (VIP/high_potential/at_risk/churned/new) using order count, spend, recency
+- `GET /api/insights/ai-suggest` — LLM-generated 3-5 prioritized actions for this week
 
-### Order new fields
-- type: retail / wholesale / delivery
-- customer_district + customer_address
-- payment_method: cash / transfer / debt / ewallet / card (5 options)
-- discount + discount_percent (both deduct from total)
-- shipping_fee
-- assigned_shipper_id + due_date (for debt orders, auto-set from customer.max_debt_days)
+### Order workflow
+- new → processing → delivering → delivered, delivering→debt_pending for debt orders, Any→cancelled (restores stock)
+- Fields: type (retail/wholesale/delivery), customer_district + address, payment_method (cash/transfer/debt/ewallet/card), discount + discount_percent, shipping_fee, assigned_shipper_id, due_date
+
+### Dashboard
+- KPI cards (Doanh thu hôm nay, Đơn hôm nay, Công nợ, Sản phẩm) all click-through to corresponding tab
+- 7-day revenue chart, top sellers, recent orders, low-stock alerts
 
 ### AI Assistant
-- Both Claude Sonnet 4.5 AND OpenAI GPT-5.2/5.1/4o
-- User selects model via settings gear in chat panel
-- Multi-turn memory per (session_id, model)
-- Live business context injected (today revenue, pending orders, low stock)
+- Claude Sonnet 4.5 + OpenAI GPT-5.2/5.1/4o, user-selectable, multi-turn memory, live business context injection
 
 ## Test Coverage
-- Backend: **38/38 tests pass (100%)**
-- Frontend: All 12 pages verified manually + via screenshot
-- Comprehensive test suite at `/app/backend/tests/test_v2.py`
+- Backend: **50/50 tests pass (100%)** — `tests/test_v2.py` (38) + `tests/test_phase_5_8.py` (12)
+- Frontend: 14 pages verified (Dashboard, Orders, NewOrder, OrderDetail, Products, Materials, Production, Customers, CustomerCare, Insights, Suppliers, Debts, Delivery, Users, Reports, Settings)
 
-## Implementation Dates
+## Implementation Timeline
 - 2026-05-14: v1 MVP delivered
 - 2026-05-14: 13 user-requested improvements (iteration 2)
-- 2026-05-18: **v2 — Phase 0+1+2+3+4+6+7 (this iteration)** — major expansion
+- 2026-05-18: v2 — Phase 0+1+2+3+4+6+7
+- 2026-05-18: **v2.1 — Phase 5 (Production + AI forecast) + Phase 8 (AI Insights/Combos/Scoring) + A5 compact print + Dashboard click-throughs + supplier-auto-debt on stock-in + monthly stats in CustomerCare + bug fixes (Products.jsx stock-in handlers + customer-care tz-naive crash)**
 
-## Known Limitations (still MOCKED / not done)
-- Phase 5 (Production batches with shifts + AI forecasting) — DEFERRED per user
-- Phase 8 (Combo recommendation engine + AI scoring + churn analysis) — DEFERRED per user
-- Real Email/SMS notifications — NOT implemented (mock only)
-- Online payment processing (VNPay/MoMo/Stripe) — NOT implemented
-- Bill print delivery confirmation signature — UI only
-- Route optimization (TSP solver) — basic shift grouping only
+## Pending Backlog (P1)
+- Replace native date pickers with shadcn Calendar in /orders filter
+- `/api/system/reset-demo` confirm param Optional[str] → 400 instead of 422
+
+## Future (P2)
+- Mobile PWA / responsive optimization
+- QR ordering for customers
+- Loyalty / points system
+- Multi-branch & franchise
+- GHN / Viettel Post delivery integration
+- Real Email/SMS notifications, online payment (VNPay/MoMo/Stripe)
+
+## Refactor opportunities
+- `server.py` is 2261 lines — split into routers (system/auth/settings/materials/customers/orders/debts/insights/production/users/reports/chat) + permissions module
+
+## Known Limitations
+- Production.create silently over-consumes materials below 0
+- Forecast endpoint uses N+1 product lookups (fine <1k products)
+- Insights/customer-scoring loops up to 2000 customers in memory (re-evaluate >5k)
 
 ## Test Credentials
 See `/app/memory/test_credentials.md`
