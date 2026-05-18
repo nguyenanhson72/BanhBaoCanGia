@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 6 — Full backend re-test + frontend smoke of every v2 page. Backend: all 38 tests in /app/backend/tests/test_v2.py PASS (12.29s). The 3 previously-failing RBAC tests are now green after the shipper permissions fix (customers.view removed). Frontend: login flow works; sidebar shows all 12 nav items (Tổng quan, Đơn hàng, Sản phẩm, Nguyên vật liệu, Khách hàng, Chăm sóc KH, Nhà cung cấp, Công nợ, Giao hàng, Nhân viên, Báo cáo, Cài đặt). Visited all v2 pages — Settings, Materials, Customers, Customer Care, Debts, Delivery, Users, Orders — and all render without errors. Settings page has Giờ máy chủ live clock, Logo upload, shop info, bank info (Vietcombank/1234567890/Test persisted from previous test), 7 bill toggle checkboxes, footer text, language, and Reset-demo button ('Xóa toàn bộ dữ liệu demo'). Materials Thêm NVL modal opens with Tên/Mã/Đơn vị/Tồn ban đầu/Giá vốn/Ngưỡng/HSD/Ghi chú. Customers columns: Mã, Tên+nickname, SĐT, Khu vực, Loại, Nhóm, Hạn nợ (ngày/tiền), Tổng chi + sort dropdown + ↓ direction. Tải form mẫu / Nhập từ Excel / Xuất Excel buttons present. Customer Care shows 3 KPI cards (Tổng khách 3, Cần chăm sóc 3, Đã đặt gần đây 0), tel: links. Debts has 3 tabs (Công nợ KH / Công nợ NCC / Lịch sử thanh toán) and 3 KPI cards. Delivery groups by 4 shifts (Sáng/Trưa/Chiều/Tối). Users 'Thêm mới' modal: role dropdown has all 7 options (admin/manager/coordinator/warehouse/accountant/shipper/staff) + 'Phân quyền tùy chỉnh' checkbox visible. Orders status dropdown: Mới/Đang xử lý/Đang giao/Đã giao/Còn nợ/Đã hủy. Payment dropdown: Tiền mặt/Chuyển khoản/Công nợ/Ví điện tử/Thẻ (Công nợ replaces COD ✓). Sort dropdown + ↓ direction toggle present. Chat widget floating button opens 'Trợ lý Bao' panel showing 'Claude Sonnet 4.5' as the current model.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/system/reset-demo", "issue": "Missing confirm query param returns 422 instead of 400 (FastAPI validation). Cosmetic. Carried over from iter 5."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Orders list filter", "issues": ["Date inputs use browser-default mm/dd/yyyy picker (input type=date) instead of shadcn Calendar component. Inconsistent with the rest of the app and not localised to dd/mm/yyyy for vi-VN users."]},
+      {"screen": "Settings reset button", "issues": ["Button text is 'Xóa toàn bộ dữ liệu demo' — that matches the intent but the review-request copy says 'Reset demo'. Just a wording verification, not a defect."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v2.py",
+    "/app/test_reports/pytest/v2_iter6.xml"
+  ],
+  "action_items": [
+    "(Optional/Design) Replace native date inputs on /orders filter with the shadcn Calendar/DatePicker to be consistent with other date pickers and to localise the format.",
+    "(Optional) Make /api/system/reset-demo confirm param Optional[str] so it returns a clean 400 when omitted."
+  ],
+  "critical_code_review_comments": [
+    "Backend server.py is still 1873 lines — recommend splitting into routers (system/auth/settings/materials/customers/orders/debts/users/reports/chat) and a permissions module. Maintainability risk is high but not blocking.",
+    "Customer import dedupe key (name, phone) still collides when phone is empty — first imported customer with empty phone wins. Suggest deduping on phone-only when phone is non-empty.",
+    "/api/chat error path returns the upstream 200-char message — fine for dev, hide in prod.",
+    "Order create silently drops invalid due_date — consider returning 400 instead of silently falling back to customer.max_debt_days."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "38/38 (100%)", "frontend": "12/12 pages verified, all critical UI present, no blocking issues"},
+  "test_credentials": "admin@banhbao.vn / admin123 (read from /app/memory/test_credentials.md). staff@banhbao.vn is documented but NOT seeded — only admin is seeded. Iter 6 created no new test accounts.",
+  "seed_data_creation": "No new seed data. Iter 5 left 3 TEST_Import_* customers + Vietcombank settings persisted; these are still present and are useful for the Debts/CustomerCare pages but should be cleaned up before production. The test_v2.py suite cleans its own artifacts.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend v2 is fully green (38/38). All frontend pages render. Open items are cosmetic/design only (date picker on /orders, optional reset-demo 400). Run: pytest /app/backend/tests/test_v2.py -v. The legacy v1 tests (backend_test.py, test_improvements.py) referenced in earlier iterations have been removed by main agent — only test_v2.py remains. URL: https://bao-cms-admin.preview.emergentagent.com. Demo data: 3 TEST_Import customers + Vietcombank settings persist from iter 5/6.",
+  "rca of the issue": "N/A — no blocking bugs in this iteration. The previous iter 5 RCA (DEFAULT_PERMISSIONS['shipper'] including customers.view) has been correctly fixed by main agent at /app/backend/server.py lines 104-106 — shipper now has only ['orders.view','delivery.view','delivery.bill']. Re-run of test_v2.py confirms shipper GET /api/customers now returns 403, /api/system/permissions response no longer lists customers.view under shipper defaults, and the shipper's 'mine' permissions exclude it. All 38 tests pass in 12.29s."
+}

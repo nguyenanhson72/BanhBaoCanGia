@@ -102,7 +102,7 @@ DEFAULT_PERMISSIONS: Dict[str, List[str]] = {
         "reports.view", "reports.export",
     ],
     "shipper": [
-        "orders.view", "delivery.view", "delivery.bill", "customers.view",
+        "orders.view", "delivery.view", "delivery.bill",
     ],
     "staff": [
         "orders.view", "orders.create", "products.view", "customers.view", "customers.create",
