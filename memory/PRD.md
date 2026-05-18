@@ -1,75 +1,114 @@
 # Bánh Bao Admin — Product Requirements Document (PRD)
 
 ## Original Problem Statement
-Internal management dashboard for a Vietnamese steamed bun (bánh bao) shop. Optimized feature list with modules for orders, products, customers/suppliers, staff (RBAC), reports, settings, and an AI chatbot assistant. Multi-language (Vietnamese + English). Authentication via JWT email/password AND Emergent-managed Google OAuth.
+Internal management dashboard for a Vietnamese steamed bun (bánh bao) shop. Now a comprehensive multi-module system covering Sales, Inventory + Raw Materials, Customers + CRM, Debts (Customer + Supplier), Delivery management, Staff with granular RBAC, Reports, AI Assistant. Multi-language Vi/En.
 
 ## Tech Stack
-- Backend: FastAPI + Motor (MongoDB) + bcrypt + PyJWT + emergentintegrations (Claude Sonnet 4.5)
-- Frontend: React 18 + React Router + TailwindCSS + Recharts + Lucide icons (no shadcn dep)
-- Auth: JWT (access 12h, refresh 7d) via httpOnly cookies + Emergent Google OAuth session_token
-- AI: Anthropic Claude Sonnet 4.5 via Universal Emergent LLM Key
+- Backend: FastAPI + Motor (MongoDB) + bcrypt + PyJWT + emergentintegrations (Claude Sonnet 4.5 + OpenAI GPT-5.2/5.1/4o) + pandas + openpyxl
+- Frontend: React 18 + React Router + TailwindCSS + Recharts + Lucide + qrcode.react + html2pdf.js + xlsx
+- Auth: JWT (cookies) + Emergent Google OAuth
+- AI: Both Claude + OpenAI via Universal Emergent LLM Key, user-selectable
 
-## User Personas
-- **Owner / Admin** — full control: dashboard, all CRUD, manage staff, configure system
-- **Manager** — operational lead: orders, products, suppliers, customers, reports
-- **Staff** — POS/cashier: take orders, manage customers, view products/inventory
+## Roles & RBAC (7 roles)
+- **admin** — full access
+- **manager** — all except user mgmt + settings edit
+- **coordinator** — orders + customer ops + delivery + debts view + reports
+- **warehouse** — products + materials + stock ops + suppliers + reports
+- **accountant** — orders view/print + debts (collect/pay/remind) + reports + export
+- **shipper** — orders.view + delivery.view + delivery.bill (no customers list)
+- **staff** — basic order/customer ops
 
-## Core Modules Implemented (v0.1)
-1. **Authentication**
-   - JWT email/password login + register
-   - Google OAuth via Emergent
-   - Brute-force lockout (5 fails / 15 min)
-   - Refresh token
-2. **Dashboard** — KPIs (today revenue/orders/debt/products), 7-day revenue line chart, top 5 best sellers, low stock list, recent orders list
-3. **Orders** — list with filters (status/payment/text), create new (autocomplete customer + product picker), detail view with **timeline of status changes**, status update with notes, automatic stock decrement on create / restore on cancel
-4. **Products** — grid view with images, low stock badge, filter by category + low-stock-only, full CRUD (admin/manager), variants schema-ready
-5. **Customers** — table with group filter (vip/regular/new), full CRUD, auto-computed total_orders & total_spent
-6. **Suppliers** — card view with rating stars, full CRUD
-7. **Users (Staff)** — admin-only RBAC management (admin/manager/staff), create with password, update role/password
-8. **Reports**
-   - Revenue (daily 30d / weekly 12w / monthly 12m) bar chart
-   - Debt by customer (COD unpaid orders)
-   - Inventory (total value, low stock count, OOS count, per-product valuation)
-9. **AI Chatbot "Bao"** — floating widget, Claude Sonnet 4.5, multi-turn memory in MongoDB, gets live business context (today revenue, pending orders, low stock) injected into system prompt
-10. **i18n** — Vietnamese (default) + English, full coverage across UI, persisted in localStorage
-11. **Settings** — company info form, language selector, integrations status, account info
+Each user can override role defaults with granular custom permissions (checkbox matrix).
 
-## Seeded Demo Data
-- 2 users (admin, staff)
-- 6 products (banh bao variants with images)
-- 5 customers (vip/regular/new mix)
-- 3 suppliers
-- ~25 orders spread over last 7 days with mixed statuses & payment methods
+## Modules Implemented (v2.0)
 
-## Implementation Date
-- **2026-05-14**: MVP delivered (all P0/P1 features above)
-- **2026-05-14 (later)**: Iteration 2 — 13 user-requested improvements:
-  - Orders default sort by created_at DESC (newest first)
-  - Print + PDF export on Reports (Revenue / Debt / Inventory) via html2pdf.js
-  - Print + PDF export on Orders list (filter-aware)
-  - Print bill in 2 formats from Order detail: 80mm thermal + A4 invoice
-  - Bill template minimal: shop name, order code, customer info, items (name/price/qty/subtotal), totals, purchase date + print date
-  - Product image upload from computer (base64, max 500KB) — both file upload button and URL fallback
-  - Searchable typeahead Combobox for customer + product in New Order (no more dropdown)
-  - Auto-fill customer address on selection in New Order
-  - Show product stock badge when picking item; warn if quantity exceeds stock
-  - Inventory report adds "Hàng âm" (negative stock) KPI card + dedicated red alert section
-  - Discount % field on New Order (in addition to fixed VND discount); both deduct from total
-  - Date range filter (Từ ngày / Đến ngày) on Orders list AND Reports Revenue
-  - Backend `/api/reports/revenue` now accepts `date_from` + `date_to` for custom daily buckets
+### Phase 0 — Quick wins
+- COD → Công nợ rename (with backwards-compat migration)
+- Server time endpoint + live clock display
+- Sort ascending/descending toggle on lists
+- Order Duplicate (Copy / Mua lại) → creates new order with today's date
+- Reset demo data button (admin only)
 
-## Backlog (Future)
-- **P1**: Email notifications (SendGrid), Excel/PDF export, audit logs, password reset flow
-- **P2**: VNPay/MoMo online payment, SMS via Twilio, shipping integrations (GHN/Viettel Post)
-- **P2**: Variant management UI for products
-- **P3**: PWA offline mode, image upload to S3/Cloudflare
-- **P3**: Customer-facing storefront (out of MVP scope)
+### Phase 1 — Settings & Bills
+- Shop settings: name, address, phone, email, website, tax_id
+- Bank info: bank name, account, holder → **VietQR auto-generated on bill**
+- Logo upload (base64, max 300KB)
+- 7 toggle checkboxes for fields on bill (logo/address/phone/email/website/tax_id/bank_qr)
+- Bill footer custom text
+- 3 print formats: **80mm thermal**, **A4 portrait**, **A5 landscape**
+- Each format renders shop info + QR + items + totals + purchase date + print date
 
-## Known Limitations
-- Email/SMS notifications are NOT implemented (MOCKED — only console / no real send)
-- Online payment is NOT integrated (only manual ghi nhận: cash/transfer/COD/card)
-- Reports export to PDF/Excel is NOT implemented (UI placeholder)
-- 2FA NOT implemented yet (RBAC only)
+### Phase 2 — Customers expansion
+- New fields: code (auto), nickname, tax_id (MST/CCCD), district, city, type (retail/wholesale), classification (custom), assigned_user_id, **max_debt_days**, **max_debt_amount**
+- Excel template download + Excel import (xlsx) + Excel export
+- Sort with-orders-first via Customer Care page
+- Customer Care page: list with "needs care" flagging (14+/30+/60+ days since last order), tel: links, district filter
+
+### Phase 3 — Debts module
+- Customer debts aggregated: total / due_soon (≤3d) / overdue, drill-down per customer
+- Customer order detail: paid_amount, remaining_amount, days_to_due, overdue flag
+- Partial payment collection (`/debts/collect`)
+- Supplier debt tracking + `/debts/pay-supplier` (pay supplier)
+- Payment history with direction (in/out)
+- 3 tabs UI: Công nợ KH / Công nợ NCC / Lịch sử thanh toán
+
+### Phase 4 — Raw Materials (NVL) + Stock
+- Materials CRUD with expiration_days, low_stock_threshold
+- Stock In endpoint with batch_code, production_date, expiration_date, supplier link, unit_price
+- Stock Adjust endpoint (damage/waste/lost/correction/expired)
+- Stock movements log (full history)
+- Expiring soon endpoint (FIFO basis)
+- Inventory report includes materials valuation
+
+### Phase 6 — RBAC
+- 7 roles + 38 granular permission keys
+- Permission matrix UI in Users page (checkbox grid grouped by category)
+- Sidebar items filtered by user permissions
+- Backend enforced via `require_permission()` dependency
+
+### Phase 7 — Delivery & Shippers
+- Shipper assignment on order
+- Delivery page groups orders by 4 shifts (Sáng/Trưa/Chiều/Tối) + by shipper
+- Quick assign dropdown per order
+- Date filter
+- Delivery bill print (uses standard A4/80mm templates)
+
+### Order workflow (new statuses)
+- new → processing → delivering → delivered
+- delivering → debt_pending (for debt orders)
+- Any → cancelled (restores stock)
+
+### Order new fields
+- type: retail / wholesale / delivery
+- customer_district + customer_address
+- payment_method: cash / transfer / debt / ewallet / card (5 options)
+- discount + discount_percent (both deduct from total)
+- shipping_fee
+- assigned_shipper_id + due_date (for debt orders, auto-set from customer.max_debt_days)
+
+### AI Assistant
+- Both Claude Sonnet 4.5 AND OpenAI GPT-5.2/5.1/4o
+- User selects model via settings gear in chat panel
+- Multi-turn memory per (session_id, model)
+- Live business context injected (today revenue, pending orders, low stock)
+
+## Test Coverage
+- Backend: **38/38 tests pass (100%)**
+- Frontend: All 12 pages verified manually + via screenshot
+- Comprehensive test suite at `/app/backend/tests/test_v2.py`
+
+## Implementation Dates
+- 2026-05-14: v1 MVP delivered
+- 2026-05-14: 13 user-requested improvements (iteration 2)
+- 2026-05-18: **v2 — Phase 0+1+2+3+4+6+7 (this iteration)** — major expansion
+
+## Known Limitations (still MOCKED / not done)
+- Phase 5 (Production batches with shifts + AI forecasting) — DEFERRED per user
+- Phase 8 (Combo recommendation engine + AI scoring + churn analysis) — DEFERRED per user
+- Real Email/SMS notifications — NOT implemented (mock only)
+- Online payment processing (VNPay/MoMo/Stripe) — NOT implemented
+- Bill print delivery confirmation signature — UI only
+- Route optimization (TSP solver) — basic shift grouping only
 
 ## Test Credentials
 See `/app/memory/test_credentials.md`
