@@ -5,6 +5,7 @@ import os
 import io
 import uuid
 import json
+import zipfile
 import logging
 import secrets
 from datetime import datetime, timezone, timedelta
@@ -431,6 +432,14 @@ class ShopSettingsIn(BaseModel):
     bill_show_bank_qr: bool = True
     bill_footer_text: str = "Cảm ơn quý khách. Hẹn gặp lại!"
     default_language: Literal["vi", "en"] = "vi"
+    # Bill customization (Đợt 3A)
+    bill_accent_color: str = "#2D4A22"
+    bill_logo_position: Literal["left", "center", "right"] = "left"
+    bill_signature_customer: bool = False
+    bill_signature_shipper: bool = False
+    bill_signature_warehouse: bool = False
+    bill_signature_accountant: bool = False
+    bill_fixed_notes: List[str] = []  # up to 5 strings
 
 
 class ChatIn(BaseModel):
@@ -479,6 +488,163 @@ async def reset_demo(confirm: str = Query(...), user: dict = Depends(require_rol
         res = await db[c].delete_many({})
         counts[c] = res.deleted_count
     return {"ok": True, "deleted": counts}
+
+
+# Đợt 3B — Export-all / Backup / Import-back
+VN_HEADERS = {
+    "customers": {
+        "customer_id": "Mã KH", "code": "Mã hiển thị", "name": "Tên KH",
+        "nickname": "Tên gọi", "phone": "SĐT", "email": "Email",
+        "address": "Địa chỉ", "district": "Phường/Xã", "city": "Tỉnh/Thành",
+        "tax_id": "MST/CCCD", "group": "Nhóm", "type": "Loại",
+        "classification": "Phân loại", "max_debt_days": "Hạn nợ (ngày)",
+        "max_debt_amount": "Hạn nợ (VND)", "notes": "Ghi chú",
+        "total_orders": "Tổng đơn", "total_spent": "Tổng chi",
+        "last_order_at": "Lần đặt cuối", "created_at": "Ngày tạo",
+    },
+    "products": {
+        "product_id": "Mã SP", "sku": "SKU", "name": "Tên SP", "category": "Loại",
+        "description": "Mô tả", "price": "Giá bán", "wholesale_price": "Giá sỉ",
+        "cost": "Giá vốn", "stock": "Tồn kho", "unit": "ĐVT",
+        "low_stock_threshold": "Ngưỡng tồn thấp", "expiration_days": "HSD mặc định (ngày)",
+        "is_active": "Đang bán", "created_at": "Ngày tạo",
+    },
+    "orders": {
+        "order_id": "Mã đơn", "order_code": "Mã hiển thị", "customer_id": "Mã KH",
+        "customer_name": "Tên KH", "customer_phone": "SĐT KH",
+        "customer_address": "Địa chỉ", "customer_district": "Phường/Xã",
+        "customer_city": "Tỉnh/Thành", "type": "Loại đơn",
+        "subtotal": "Tạm tính", "discount": "Giảm VND", "discount_percent": "Giảm %",
+        "discount_amount": "Tổng giảm", "shipping_fee": "Phí ship",
+        "total": "Tổng", "paid_amount": "Đã trả", "remaining_amount": "Còn nợ",
+        "payment_method": "Thanh toán", "is_paid": "Đã trả?", "status": "Trạng thái",
+        "due_date": "Hạn nợ", "assigned_shipper_id": "Mã shipper",
+        "assigned_shipper_name": "Tên shipper", "note": "Ghi chú",
+        "created_at": "Ngày đặt", "created_by": "Tạo bởi",
+    },
+    "debt_payments": {
+        "payment_id": "Mã GD", "direction": "Hướng", "customer_id": "Mã KH",
+        "customer_name": "Tên KH", "supplier_id": "Mã NCC", "supplier_name": "Tên NCC",
+        "order_id": "Mã đơn", "amount": "Số tiền", "method": "Phương thức",
+        "notes": "Ghi chú", "created_at": "Ngày GD", "created_by": "Tạo bởi",
+    },
+}
+
+
+def _df_from_collection_items(items: List[Dict[str, Any]], headers_map: Dict[str, str]) -> pd.DataFrame:
+    """Project ordered columns + rename to Vietnamese headers."""
+    if not items:
+        return pd.DataFrame(columns=list(headers_map.values()))
+    rows = []
+    for it in items:
+        row = {}
+        for key, vn_label in headers_map.items():
+            v = it.get(key, "")
+            # Format datetimes nicely
+            if hasattr(v, "isoformat"):
+                v = v.strftime("%Y-%m-%d %H:%M:%S")
+            elif isinstance(v, list):
+                v = json.dumps(v, ensure_ascii=False, default=str)
+            row[vn_label] = v
+        rows.append(row)
+    return pd.DataFrame(rows, columns=list(headers_map.values()))
+
+
+@api.get("/system/export-all-excel")
+async def export_all_excel(user: dict = Depends(require_role("admin"))):
+    """Export all key collections into a single multi-sheet xlsx (Vietnamese headers)."""
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        for coll, headers in VN_HEADERS.items():
+            items = await db[coll].find({}, {"_id": 0}).limit(50000).to_list(None)
+            df = _df_from_collection_items(items, headers)
+            df.to_excel(writer, sheet_name=coll[:31], index=False)
+    buf.seek(0)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"banhbao_export_{ts}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@api.get("/system/backup-zip")
+async def backup_zip(user: dict = Depends(require_role("admin"))):
+    """Stream a .zip containing JSON dumps of all collections (full backup)."""
+    collections = [
+        "users", "customers", "suppliers", "products", "materials",
+        "orders", "stock_movements", "debt_payments", "settings",
+        "production_batches", "security_settings",
+    ]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for coll in collections:
+            items = await db[coll].find({}, {"_id": 0}).to_list(None)
+            data = json.dumps(items, ensure_ascii=False, default=str, indent=2)
+            zf.writestr(f"{coll}.json", data)
+        meta = {
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "by_user": user.get("email"),
+            "collections": collections,
+            "version": "v2.2",
+        }
+        zf.writestr("_meta.json", json.dumps(meta, ensure_ascii=False, indent=2))
+    buf.seek(0)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"banhbao_backup_{ts}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@api.post("/system/import-all-excel")
+async def import_all_excel(file: UploadFile = File(...), user: dict = Depends(require_role("admin"))):
+    """Read a multi-sheet xlsx exported earlier and upsert rows into each known collection.
+
+    The xlsx must use the Vietnamese headers produced by /system/export-all-excel.
+    Rows are matched by the entity *_id field (customer_id, product_id, order_id, payment_id).
+    Missing IDs are auto-generated.
+    """
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="File rỗng")
+    counts: Dict[str, int] = {}
+    try:
+        for coll, headers_map in VN_HEADERS.items():
+            try:
+                df = pd.read_excel(io.BytesIO(contents), sheet_name=coll[:31])
+            except Exception:
+                continue
+            inv = {v: k for k, v in headers_map.items()}  # VN label -> internal key
+            id_field = {
+                "customers": "customer_id", "products": "product_id",
+                "orders": "order_id", "debt_payments": "payment_id",
+            }[coll]
+            inserted = 0
+            for _, row in df.iterrows():
+                doc: Dict[str, Any] = {}
+                for vn_label in df.columns:
+                    key = inv.get(vn_label) or vn_label
+                    v = row[vn_label]
+                    if pd.isna(v):
+                        continue
+                    doc[key] = v
+                if not doc.get(id_field):
+                    doc[id_field] = f"{id_field.split('_')[0][:3]}_{uuid.uuid4().hex[:10]}"
+                # Upsert
+                await db[coll].update_one(
+                    {id_field: doc[id_field]},
+                    {"$set": doc},
+                    upsert=True,
+                )
+                inserted += 1
+            counts[coll] = inserted
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Lỗi đọc file: {e}")
+    return {"ok": True, "imported": counts}
 
 
 # ===========================================================================
@@ -1054,6 +1220,8 @@ async def stock_adjust(body: StockAdjustIn, user: dict = Depends(require_permiss
 async def list_movements(
     kind: Optional[str] = None, target_id: Optional[str] = None,
     type: Optional[str] = None,
+    date_from: Optional[str] = None, date_to: Optional[str] = None,
+    limit: int = 500,
     user: dict = Depends(get_current_user),
 ):
     q = {}
@@ -1063,8 +1231,81 @@ async def list_movements(
         q["target_id"] = target_id
     if type:
         q["type"] = type
-    items = await db.stock_movements.find(q, {"_id": 0}).sort("created_at", -1).limit(500).to_list(None)
+    if date_from or date_to:
+        rng = {}
+        if date_from:
+            rng["$gte"] = datetime.fromisoformat(date_from).replace(tzinfo=timezone.utc)
+        if date_to:
+            rng["$lte"] = (datetime.fromisoformat(date_to) + timedelta(days=1)).replace(tzinfo=timezone.utc)
+        q["created_at"] = rng
+    items = await db.stock_movements.find(q, {"_id": 0}).sort("created_at", -1).limit(min(limit, 5000)).to_list(None)
     return items
+
+
+@api.get("/inventory/xnt")
+async def inventory_xnt(
+    kind: str = "product",  # "product" | "material"
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: dict = Depends(require_permission("reports.view")),
+):
+    """Xuất Nhập Tồn report — for each entity, returns opening_stock, total_in, total_out,
+    ending_stock and current_stock (DB snapshot)."""
+    if kind not in ("product", "material"):
+        raise HTTPException(status_code=400, detail="kind must be product or material")
+    coll = db.products if kind == "product" else db.materials
+    id_field = "product_id" if kind == "product" else "material_id"
+
+    df = datetime.fromisoformat(date_from).replace(tzinfo=timezone.utc) if date_from else None
+    dt = (datetime.fromisoformat(date_to) + timedelta(days=1)).replace(tzinfo=timezone.utc) if date_to else None
+
+    entities = await coll.find({}, {"_id": 0}).to_list(None)
+
+    rows = []
+    for ent in entities:
+        eid = ent[id_field]
+        # Movements before date_from = opening stock movements
+        movs_query = {"kind": kind, "target_id": eid}
+        all_movs = await db.stock_movements.find(movs_query, {"_id": 0}).sort("created_at", 1).to_list(None)
+
+        opening = 0
+        total_in = 0
+        total_out = 0
+        for m in all_movs:
+            ts = m.get("created_at")
+            if ts and ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            qty = m.get("quantity_change", 0) or 0
+            if df and ts and ts < df:
+                opening += qty
+                continue
+            if dt and ts and ts >= dt:
+                continue
+            if qty > 0:
+                total_in += qty
+            else:
+                total_out += -qty
+
+        ending = opening + total_in - total_out
+        rows.append({
+            "id": eid,
+            "name": ent.get("name"),
+            "unit": ent.get("unit") or ("cái" if kind == "product" else "kg"),
+            "opening_stock": opening,
+            "total_in": total_in,
+            "total_out": total_out,
+            "ending_stock": ending,
+            "current_stock": ent.get("stock", 0),
+        })
+    rows.sort(key=lambda r: (r["total_in"] + r["total_out"]), reverse=True)
+    totals = {
+        "total_in": sum(r["total_in"] for r in rows),
+        "total_out": sum(r["total_out"] for r in rows),
+        "total_opening": sum(r["opening_stock"] for r in rows),
+        "total_ending": sum(r["ending_stock"] for r in rows),
+        "n_entities": len(rows),
+    }
+    return {"items": rows, "totals": totals, "kind": kind, "date_from": date_from, "date_to": date_to}
 
 
 @api.get("/stock/expiring")

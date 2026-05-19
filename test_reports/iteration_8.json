@@ -1,0 +1,52 @@
+{
+  "summary": "Iter 8 — Comprehensive backend+frontend test for Đợt 1/2/3 (clone-via-form, customer_city, stock-in no-debt-payment, PIN2 security, delete-all 3-layer, bill customization, XNT, export/backup/import, stock movements date filters). Added new test file /app/backend/tests/test_dot_1_2_3.py (9 tests) — ALL 9 PASS. Re-ran full backend suite (61+9 = 70 tests). 66/70 PASS. 4 pre-existing failures (carried from before this batch): /api/customer-care, /api/debts/customers, /api/insights/customer-scoring, /api/insights/ai-suggest all 500 with same root cause: `last_order.tzinfo` / `min_due.tzinfo` raised AttributeError because MongoDB returns datetimes as strings for some legacy demo records — code does not normalise before accessing tzinfo (server.py lines 1560, 1769, 2198). Frontend: 5/6 critical Đợt 1/2/3 flows PASS — sidebar shows 'Kho hàng hóa', /customer-care has new filters (Tỉnh/Thành, Phường/Xã, Chưa đặt, Lần đặt cuối), /customers no longer has Loại filter and Sort includes Tỉnh/Thành, /production heading is 'Kho hàng hóa' with 4 tabs (Xuất Nhập Tồn / Lịch sử nhập/xuất / Sản xuất theo ca / AI Gợi ý), /settings shows 'Bảo mật cấp 2' + 'Sao lưu' + 'Xuất Excel'/'Backup'/'Đồng bộ' buttons + bill customization, /orders shows 'Xóa toàn bộ' button next to 'In/PDF'. The clone-via-form prefill flow FAILED: copy button has correct data-testid='order-duplicate-<order_id>' and title='Nhân bản' on both list rows AND detail page, hasOnClick=true, but clicking via Playwright (both .click(force=True) and JS dispatchEvent path) does NOT navigate to /orders/new?clone_from=<id>. URL remains on /orders or /orders/<id>. PIN2 currently OFF (cleared by test_phase_2_security teardown); delete_pins are set to del-a/del-b from previous iteration as documented in review-request.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/customer-care", "issue": "500 AttributeError: 'str' object has no attribute 'tzinfo' at server.py:1769. Pre-existing — datetime stored as string in some legacy orders and code does not parse before .tzinfo access."},
+      {"endpoint": "GET /api/debts/customers", "issue": "500 AttributeError: 'str' object has no attribute 'tzinfo' at server.py:2198 (min_due). Same RCA as above."},
+      {"endpoint": "GET /api/insights/customer-scoring", "issue": "500 AttributeError at server.py:1560 (last_order). Same RCA."},
+      {"endpoint": "GET /api/insights/ai-suggest", "issue": "500 because it internally calls insight_customer_scoring (line 1605) which fails. Cascading."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Orders list + OrderDetail clone button", "issue": "Clicking the 'Nhân bản' (Copy) icon button (data-testid='order-duplicate-<order_id>') does NOT navigate to /orders/new?clone_from=<id>. Tested both list-row variant and detail-page variant. Button is correctly rendered with onClick handler but no navigation/toast/modal occurs after click. Could be a missing navigate() call or an exception thrown silently inside handler.", "selector": "[data-testid^='order-duplicate-']", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Orders filter", "issues": ["Date filters still use browser-default mm/dd/yyyy input type=date instead of shadcn Calendar — carried over from iter 6."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_dot_1_2_3.py",
+    "/app/backend/tests/test_v2.py",
+    "/app/backend/tests/test_phase_2_security.py",
+    "/app/backend/tests/test_phase_5_8.py",
+    "/app/test_reports/pytest/iter8_baseline.xml"
+  ],
+  "action_items": [
+    "Investigate why the 'Nhân bản' (clone) button on Orders.jsx list rows AND OrderDetail.jsx top-right does not navigate to /orders/new?clone_from=<id>. Verify the handler actually calls navigate() / window.location and that NewOrder.jsx reads ?clone_from. Manual reproduction: login as admin → /orders → click any rectangle/copy icon on a row → URL stays at /orders (no toast, no nav). data-testid is order-duplicate-<orderid>.",
+    "Fix datetime string vs datetime handling for last_order/min_due at server.py:1560, 1769, 2198. Use `if isinstance(x, str): x = datetime.fromisoformat(x.replace('Z','+00:00'))` before .tzinfo access. This will fix /api/customer-care, /api/debts/customers, /api/insights/customer-scoring, /api/insights/ai-suggest all in one shot.",
+    "(Optional) Date inputs on /orders should use shadcn Calendar (carried from iter 6)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is still ~2647 lines — splitting into routers strongly recommended (auth/system/security/orders/inventory/insights/chat).",
+    "The 'str has no tzinfo' issue appears in 4 endpoints with identical bug pattern — extract a `_ensure_dt(value)` helper and replace all 4 occurrences.",
+    "POST /api/stock/in correctly stopped creating debt_payments (Đợt 1 verified) and increments suppliers.total_debt only when supplier_id + unit_price>0. Good.",
+    "PIN2 dependency at server.py:233-252 nicely composes permission + X-PIN2 check. Verified via test_phase_2_security.",
+    "GET /system/backup-zip returns JSON of all collections + _meta.json — strips _id properly (verified via openpyxl + zipfile inspection).",
+    "GET /inventory/xnt returns the documented shape {items, totals:{total_in,total_out,total_opening,total_ending,n_entities}, kind, date_from, date_to} — both kind=product and kind=material verified.",
+    "GET /stock/movements supports date_from/date_to/limit — verified, limit honoured (returns ≤10 when limit=10)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_dot_1_2_3.py (NEW — 9 tests)"
+  ],
+  "success_rate": {"backend": "66/70 (94%) — 9/9 new Đợt 1/2/3 tests PASS, 57/61 pre-existing pass, 4 pre-existing failures unrelated to this batch", "frontend": "5/6 (83%) — clone-via-form button click does not navigate"},
+  "test_credentials": "admin@banhbao.vn / admin123 from /app/memory/test_credentials.md (verified).",
+  "seed_data_creation": "test_dot_1_2_3.py creates+cleans TEST_D1_* customers/products/suppliers/materials. delete_pins (del-a, del-b) remain set from prior iteration — review-request explicitly said leave them. PIN2 currently CLEARED (off).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run `pytest /app/backend/tests/ -v --tb=short`. Expect 66/70 PASS until main agent fixes the 'str has no tzinfo' bug in 4 endpoints. Frontend: the clone button on /orders does not navigate — must be fixed in Orders.jsx/OrderDetail.jsx onClick handler (NewOrder.jsx prefill from clone_from could not be tested because we never reach that route via UI). delete_pins are set to del-a/del-b — do NOT POST /orders/delete-all (destructive). PIN2 is currently OFF. Preview URL: https://bao-cms-admin.preview.emergentagent.com.",
+  "rca of the issue": "Bug 1 (clone-button-no-nav): Button data-testid='order-duplicate-<id>' has onClick handler attached (verified via DOM inspection) but invoking via JS .click() and Playwright .click(force=True) both leave URL unchanged with no toast/modal/error. Either (a) navigate() is conditional on something falsy (e.g. user permission, order shape), (b) the handler throws silently before navigate() runs, or (c) e.stopPropagation/preventDefault inside a parent row click is interfering with synthetic-event handling. Recommend opening Chrome DevTools, breakpoint on the click, and inspecting. Bug 2 (str.tzinfo): db.orders documents store created_at sometimes as ISO string (legacy demo seed) and sometimes as datetime. Code at server.py 1560/1769/2198 accesses .tzinfo unconditionally on aggregate $max/$min results. Fix: parse-if-str helper before tzinfo check."
+}

@@ -53,13 +53,16 @@ function VietQRImage({ shop, amount, note, size = 140 }) {
 
 function ShopHeader({ shop, variant = "a4" }) {
   const big = variant === "a4" || variant === "a5";
+  const accent = shop.bill_accent_color || "#2D4A22";
+  const pos = shop.bill_logo_position || "left";
+  const justify = pos === "center" ? "center" : pos === "right" ? "flex-end" : "flex-start";
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: big ? 16 : 6 }}>
+    <div style={{ display: "flex", justifyContent: justify, alignItems: "center", gap: 12, marginBottom: big ? 16 : 6 }}>
       {shop.bill_show_logo && shop.logo_url && (
         <img src={shop.logo_url} alt="" style={{ width: big ? 56 : 36, height: big ? 56 : 36, objectFit: "contain" }} />
       )}
-      <div>
-        <div style={{ fontSize: big ? 22 : 13, fontWeight: 800, color: "#2D4A22" }}>{shop.shop_name}</div>
+      <div style={{ textAlign: pos === "center" ? "center" : "left" }}>
+        <div style={{ fontSize: big ? 22 : 13, fontWeight: 800, color: accent }}>{shop.shop_name}</div>
         <div style={{ fontSize: big ? 11 : 9, color: "#52525B", lineHeight: 1.4 }}>
           {shop.bill_show_address && shop.address ? <div>{shop.address}</div> : null}
           {shop.bill_show_phone && shop.phone ? <span>ĐT: {shop.phone} </span> : null}
@@ -68,6 +71,41 @@ function ShopHeader({ shop, variant = "a4" }) {
           {shop.bill_show_tax_id && shop.tax_id ? <div>MST: {shop.tax_id}</div> : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Fixed notes block (rendered above signatures) */
+function FixedNotesBlock({ shop, fontSize = 11 }) {
+  const notes = (shop.bill_fixed_notes || []).filter((s) => s && s.trim());
+  if (notes.length === 0) return null;
+  return (
+    <div style={{ marginTop: 12, fontSize, color: "#52525B", lineHeight: 1.6 }}>
+      {notes.map((n, i) => (
+        <div key={i}>• {n}</div>
+      ))}
+    </div>
+  );
+}
+
+/** Signatures block (4 columns: Customer / Shipper / Warehouse / Accountant) */
+function SignaturesBlock({ shop, fontSize = 10 }) {
+  const boxes = [
+    { key: "bill_signature_customer", label: "Khách hàng" },
+    { key: "bill_signature_shipper", label: "NV giao hàng" },
+    { key: "bill_signature_warehouse", label: "QL Kho" },
+    { key: "bill_signature_accountant", label: "Kế toán" },
+  ].filter((b) => shop[b.key]);
+  if (boxes.length === 0) return null;
+  return (
+    <div style={{ marginTop: 16, display: "flex", justifyContent: "space-around", gap: 8 }}>
+      {boxes.map((b) => (
+        <div key={b.key} style={{ flex: 1, textAlign: "center" }}>
+          <div style={{ fontSize, fontWeight: 700 }}>{b.label}</div>
+          <div style={{ fontSize: fontSize - 1, fontStyle: "italic", color: "#71717A", marginTop: 2 }}>(Ký và ghi rõ họ tên)</div>
+          <div style={{ height: 44, borderBottom: "1px dotted #9CA3AF", marginTop: 2 }}></div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -249,12 +287,15 @@ export function InvoiceA4({ order, shop }) {
               <span style={{ fontFamily: "monospace" }}>+ {formatVND(order.shipping_fee)}</span>
             </div>
           )}
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0 4px", borderTop: "2px solid #2D4A22", marginTop: 6, fontSize: 16, fontWeight: 700 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0 4px", borderTop: `2px solid ${shop.bill_accent_color || "#2D4A22"}`, marginTop: 6, fontSize: 16, fontWeight: 700 }}>
             <span>TỔNG CỘNG</span>
-            <span style={{ color: "#2D4A22", fontFamily: "monospace" }}>{formatVND(order.total)}</span>
+            <span style={{ color: shop.bill_accent_color || "#2D4A22", fontFamily: "monospace" }}>{formatVND(order.total)}</span>
           </div>
         </div>
       </div>
+
+      <FixedNotesBlock shop={shop} fontSize={11} />
+      <SignaturesBlock shop={shop} fontSize={10} />
 
       <div style={{ marginTop: 40, textAlign: "center", fontSize: 11, fontStyle: "italic", color: "#71717A" }}>
         {shop.bill_footer_text || "Cảm ơn quý khách. Hẹn gặp lại!"}
@@ -356,9 +397,9 @@ export function InvoiceA5Landscape({ order, shop }) {
                   <span style={{ fontFamily: "monospace" }}>+ {formatVND(order.shipping_fee)}</span>
                 </div>
               )}
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0 1px", borderTop: "1.5px solid #2D4A22", marginTop: 2, fontSize: 12, fontWeight: 700 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0 1px", borderTop: `1.5px solid ${shop.bill_accent_color || "#2D4A22"}`, marginTop: 2, fontSize: 12, fontWeight: 700 }}>
                 <span>TỔNG</span>
-                <span style={{ color: "#2D4A22", fontFamily: "monospace" }}>{formatVND(order.total)}</span>
+                <span style={{ color: shop.bill_accent_color || "#2D4A22", fontFamily: "monospace" }}>{formatVND(order.total)}</span>
               </div>
             </div>
           </div>
@@ -375,6 +416,9 @@ export function InvoiceA5Landscape({ order, shop }) {
           </div>
         )}
       </div>
+
+      <FixedNotesBlock shop={shop} fontSize={8} />
+      <SignaturesBlock shop={shop} fontSize={8} />
 
       <div style={{ textAlign: "center", marginTop: 3, fontSize: 8, fontStyle: "italic", color: "#71717A", paddingTop: 3, borderTop: "1px dotted #E4E4E7" }}>
         {shop.bill_footer_text || "Cảm ơn quý khách"}

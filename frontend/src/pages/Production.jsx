@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Factory, Plus, Calendar, Brain, Trash2, Sparkles } from "lucide-react";
+import { Factory, Plus, Calendar, Brain, Trash2, Sparkles, ArrowLeftRight, BarChart2, Download } from "lucide-react";
 import api from "../lib/api";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -8,7 +8,7 @@ import { Badge } from "../components/ui/Badge";
 import { Modal } from "../components/ui/Modal";
 import { toast } from "../components/ui/Toast";
 import { useI18n } from "../contexts/I18nContext";
-import { formatDate, formatDateTime, cn } from "../lib/utils";
+import { formatDate, formatDateTime, cn, formatVND } from "../lib/utils";
 
 const SHIFTS = [
   { id: "morning", label: "Sáng (6h-11h)" },
@@ -24,7 +24,21 @@ export default function Production() {
   const [materials, setMaterials] = useState([]);
   const [forecast, setForecast] = useState(null);
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState("batches");
+  const [tab, setTab] = useState("xnt");
+  // Stock movements tab state
+  const [movements, setMovements] = useState([]);
+  const [movKind, setMovKind] = useState("");
+  const [movDateFrom, setMovDateFrom] = useState("");
+  const [movDateTo, setMovDateTo] = useState("");
+  // XNT report state
+  const [xntKind, setXntKind] = useState("product");
+  const [xntDateFrom, setXntDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().slice(0, 10);
+  });
+  const [xntDateTo, setXntDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [xnt, setXnt] = useState(null);
   const [form, setForm] = useState({
     product_id: "",
     quantity: 1,
@@ -54,7 +68,44 @@ export default function Production() {
     } catch {}
   };
 
+  const loadMovements = async () => {
+    const params = new URLSearchParams();
+    if (movKind) params.set("kind", movKind);
+    if (movDateFrom) params.set("date_from", movDateFrom);
+    if (movDateTo) params.set("date_to", movDateTo);
+    const { data } = await api.get(`/stock/movements?${params.toString()}`);
+    setMovements(data);
+  };
+
+  const loadXNT = async () => {
+    const params = new URLSearchParams({ kind: xntKind });
+    if (xntDateFrom) params.set("date_from", xntDateFrom);
+    if (xntDateTo) params.set("date_to", xntDateTo);
+    const { data } = await api.get(`/inventory/xnt?${params.toString()}`);
+    setXnt(data);
+  };
+
+  const exportXntXlsx = () => {
+    if (!xnt || !xnt.items?.length) return;
+    // Build CSV (Excel-compatible) with BOM for VN diacritics
+    const rows = [
+      ["Tên", "ĐVT", "Tồn đầu", "Nhập", "Xuất", "Tồn cuối", "Tồn hiện tại"],
+      ...xnt.items.map((r) => [r.name, r.unit, r.opening_stock, r.total_in, r.total_out, r.ending_stock, r.current_stock]),
+      ["TỔNG", "", xnt.totals.total_opening, xnt.totals.total_in, xnt.totals.total_out, xnt.totals.total_ending, ""],
+    ];
+    const csv = "\uFEFF" + rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `xnt_${xntKind}_${xntDateFrom}_${xntDateTo}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   useEffect(() => { load(); loadForecast(); }, []);
+  useEffect(() => { if (tab === "stockin") loadMovements(); /* eslint-disable-next-line */ }, [tab, movKind, movDateFrom, movDateTo]);
+  useEffect(() => { if (tab === "xnt") loadXNT(); /* eslint-disable-next-line */ }, [tab, xntKind, xntDateFrom, xntDateTo]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -105,23 +156,172 @@ export default function Production() {
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
         <div>
           <h1 className="font-heading text-3xl font-bold tracking-tight flex items-center gap-2">
-            <Factory size={28} className="text-bamboo" /> Sản xuất theo ca
+            <Factory size={28} className="text-bamboo" /> Kho hàng hóa
           </h1>
-          <p className="text-sm text-ink-secondary mt-1">{batches.length} lô · AI gợi ý sản xuất ngày mai</p>
+          <p className="text-sm text-ink-secondary mt-1">Nhập kho · Xuất nhập tồn · Sản xuất theo ca · AI gợi ý</p>
         </div>
-        <Button onClick={() => setOpen(true)} data-testid="production-new-button">
-          <Plus size={16} /> Lô mới
-        </Button>
+        {tab === "batches" && (
+          <Button onClick={() => setOpen(true)} data-testid="production-new-button">
+            <Plus size={16} /> Lô SX mới
+          </Button>
+        )}
       </div>
 
-      <div className="flex gap-2 border-b border-border">
-        <button onClick={() => setTab("batches")} className={cn("flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 -mb-px", tab === "batches" ? "border-bamboo text-bamboo" : "border-transparent text-ink-muted")} data-testid="production-tab-batches">
-          <Calendar size={14} /> Lịch sử sản xuất
+      <div className="flex gap-2 border-b border-border overflow-x-auto">
+        <button onClick={() => setTab("xnt")} className={cn("flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 -mb-px whitespace-nowrap", tab === "xnt" ? "border-bamboo text-bamboo" : "border-transparent text-ink-muted")} data-testid="warehouse-tab-xnt">
+          <BarChart2 size={14} /> Xuất Nhập Tồn
         </button>
-        <button onClick={() => setTab("forecast")} className={cn("flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 -mb-px", tab === "forecast" ? "border-bamboo text-bamboo" : "border-transparent text-ink-muted")} data-testid="production-tab-forecast">
-          <Brain size={14} /> AI Gợi ý ngày mai
+        <button onClick={() => setTab("stockin")} className={cn("flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 -mb-px whitespace-nowrap", tab === "stockin" ? "border-bamboo text-bamboo" : "border-transparent text-ink-muted")} data-testid="warehouse-tab-stockin">
+          <ArrowLeftRight size={14} /> Lịch sử nhập/xuất
+        </button>
+        <button onClick={() => setTab("batches")} className={cn("flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 -mb-px whitespace-nowrap", tab === "batches" ? "border-bamboo text-bamboo" : "border-transparent text-ink-muted")} data-testid="production-tab-batches">
+          <Calendar size={14} /> Sản xuất theo ca
+        </button>
+        <button onClick={() => setTab("forecast")} className={cn("flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 -mb-px whitespace-nowrap", tab === "forecast" ? "border-bamboo text-bamboo" : "border-transparent text-ink-muted")} data-testid="production-tab-forecast">
+          <Brain size={14} /> AI Gợi ý
         </button>
       </div>
+
+      {tab === "xnt" && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <CardTitle className="flex items-center gap-2"><BarChart2 size={16} className="text-bamboo" /> Báo cáo Xuất Nhập Tồn</CardTitle>
+              <div className="flex flex-wrap gap-2 items-end">
+                <div>
+                  <Label>Loại</Label>
+                  <Select value={xntKind} onChange={(e) => setXntKind(e.target.value)} data-testid="xnt-kind">
+                    <option value="product">Sản phẩm</option>
+                    <option value="material">Nguyên vật liệu</option>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Từ ngày</Label>
+                  <Input type="date" value={xntDateFrom} onChange={(e) => setXntDateFrom(e.target.value)} data-testid="xnt-date-from" />
+                </div>
+                <div>
+                  <Label>Đến ngày</Label>
+                  <Input type="date" value={xntDateTo} onChange={(e) => setXntDateTo(e.target.value)} data-testid="xnt-date-to" />
+                </div>
+                <Button variant="outline" size="sm" onClick={exportXntXlsx} data-testid="xnt-export-csv"><Download size={14} /> CSV</Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="!p-0">
+            {!xnt ? (
+              <div className="text-center py-8 text-ink-muted text-sm">Đang tải...</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-cream/40 text-xs uppercase text-ink-muted">
+                    <tr>
+                      <th className="text-left py-3 px-4">Tên</th>
+                      <th className="text-center py-3 px-4">ĐVT</th>
+                      <th className="text-right py-3 px-4">Tồn đầu</th>
+                      <th className="text-right py-3 px-4 text-green-700">Nhập</th>
+                      <th className="text-right py-3 px-4 text-red-600">Xuất</th>
+                      <th className="text-right py-3 px-4">Tồn cuối</th>
+                      <th className="text-right py-3 px-4">Tồn hiện tại</th>
+                    </tr>
+                  </thead>
+                  <tbody data-testid="xnt-table-body">
+                    {xnt.items.length === 0 ? (
+                      <tr><td colSpan={7} className="text-center py-12 text-ink-muted">Không có dữ liệu</td></tr>
+                    ) : xnt.items.map((r) => (
+                      <tr key={r.id} className="border-t border-border hover:bg-cream/30" data-testid={`xnt-row-${r.id}`}>
+                        <td className="py-3 px-4 font-medium">{r.name}</td>
+                        <td className="py-3 px-4 text-center text-xs">{r.unit}</td>
+                        <td className="py-3 px-4 text-right font-mono">{r.opening_stock}</td>
+                        <td className="py-3 px-4 text-right font-mono text-green-700">+{r.total_in}</td>
+                        <td className="py-3 px-4 text-right font-mono text-red-600">-{r.total_out}</td>
+                        <td className="py-3 px-4 text-right font-mono font-bold">{r.ending_stock}</td>
+                        <td className="py-3 px-4 text-right font-mono">{r.current_stock}</td>
+                      </tr>
+                    ))}
+                    {xnt.items.length > 0 && (
+                      <tr className="border-t-2 border-bamboo bg-cream/60 font-bold">
+                        <td className="py-3 px-4">TỔNG</td>
+                        <td></td>
+                        <td className="py-3 px-4 text-right font-mono">{xnt.totals.total_opening}</td>
+                        <td className="py-3 px-4 text-right font-mono text-green-700">+{xnt.totals.total_in}</td>
+                        <td className="py-3 px-4 text-right font-mono text-red-600">-{xnt.totals.total_out}</td>
+                        <td className="py-3 px-4 text-right font-mono">{xnt.totals.total_ending}</td>
+                        <td></td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {tab === "stockin" && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <CardTitle className="flex items-center gap-2"><ArrowLeftRight size={16} className="text-bamboo" /> Lịch sử nhập/xuất kho</CardTitle>
+              <div className="flex flex-wrap gap-2 items-end">
+                <div>
+                  <Label>Loại</Label>
+                  <Select value={movKind} onChange={(e) => setMovKind(e.target.value)} data-testid="mov-kind">
+                    <option value="">Tất cả</option>
+                    <option value="product">Sản phẩm</option>
+                    <option value="material">Nguyên vật liệu</option>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Từ ngày</Label>
+                  <Input type="date" value={movDateFrom} onChange={(e) => setMovDateFrom(e.target.value)} data-testid="mov-date-from" />
+                </div>
+                <div>
+                  <Label>Đến ngày</Label>
+                  <Input type="date" value={movDateTo} onChange={(e) => setMovDateTo(e.target.value)} data-testid="mov-date-to" />
+                </div>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="!p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-cream/40 text-xs uppercase text-ink-muted">
+                  <tr>
+                    <th className="text-left py-3 px-4">Thời gian</th>
+                    <th className="text-left py-3 px-4">Loại</th>
+                    <th className="text-left py-3 px-4">Đối tượng</th>
+                    <th className="text-center py-3 px-4">Hoạt động</th>
+                    <th className="text-right py-3 px-4">SL</th>
+                    <th className="text-right py-3 px-4">Đơn giá</th>
+                    <th className="text-left py-3 px-4">Lô / HSD</th>
+                    <th className="text-left py-3 px-4">Ghi chú</th>
+                  </tr>
+                </thead>
+                <tbody data-testid="mov-table-body">
+                  {movements.length === 0 ? (
+                    <tr><td colSpan={8} className="text-center py-12 text-ink-muted">Không có dữ liệu</td></tr>
+                  ) : movements.map((m) => (
+                    <tr key={m.movement_id} className="border-t border-border hover:bg-cream/30" data-testid={`mov-row-${m.movement_id}`}>
+                      <td className="py-3 px-4 text-xs">{formatDateTime(m.created_at)}</td>
+                      <td className="py-3 px-4 text-xs">{m.kind === "product" ? "SP" : "NVL"}</td>
+                      <td className="py-3 px-4 font-medium">{m.target_name}</td>
+                      <td className="py-3 px-4 text-center">
+                        <Badge variant={m.quantity_change > 0 ? "delivered" : "cancelled"}>{m.type || (m.quantity_change > 0 ? "nhập" : "xuất")}</Badge>
+                      </td>
+                      <td className={cn("py-3 px-4 text-right font-mono", m.quantity_change > 0 ? "text-green-700" : "text-red-600")}>
+                        {m.quantity_change > 0 ? "+" : ""}{m.quantity_change}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono text-xs">{m.unit_price ? formatVND(m.unit_price) : "—"}</td>
+                      <td className="py-3 px-4 text-xs">{m.batch_code || ""} {m.expiration_date ? `· HSD ${formatDate(m.expiration_date)}` : ""}</td>
+                      <td className="py-3 px-4 text-xs text-ink-muted">{m.notes || ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {tab === "batches" && (
         <Card>

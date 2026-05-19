@@ -40,6 +40,13 @@ const DEFAULT = {
   bill_show_bank_qr: true,
   bill_footer_text: "Cảm ơn quý khách. Hẹn gặp lại!",
   default_language: "vi",
+  bill_accent_color: "#2D4A22",
+  bill_logo_position: "left",
+  bill_signature_customer: false,
+  bill_signature_shipper: false,
+  bill_signature_warehouse: false,
+  bill_signature_accountant: false,
+  bill_fixed_notes: ["", "", "", "", ""],
 };
 
 export default function Settings() {
@@ -68,7 +75,13 @@ export default function Settings() {
   };
 
   useEffect(() => {
-    api.get("/settings").then(({ data }) => setForm({ ...DEFAULT, ...data }));
+    api.get("/settings").then(({ data }) => {
+      const merged = { ...DEFAULT, ...data };
+      const notes = (data.bill_fixed_notes || []).slice(0, 5);
+      while (notes.length < 5) notes.push("");
+      merged.bill_fixed_notes = notes;
+      setForm(merged);
+    });
     refreshTime();
     refreshSecStatus();
     const timer = setInterval(() => setNow(new Date()), 1000);
@@ -146,6 +159,55 @@ export default function Settings() {
       toast({ title: t("common.saved"), variant: "success" });
     } catch (err) {
       toast({ title: err?.response?.data?.detail || t("common.error"), variant: "error" });
+    }
+  };
+
+  const exportAllExcel = async () => {
+    try {
+      const r = await api.get("/system/export-all-excel", { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([r.data]));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `banhbao_export_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast({ title: err?.response?.data?.detail || "Lỗi xuất Excel", variant: "error" });
+    }
+  };
+
+  const backupZip = async () => {
+    try {
+      const r = await api.get("/system/backup-zip", { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([r.data]));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `banhbao_backup_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "")}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast({ title: err?.response?.data?.detail || "Lỗi tạo backup", variant: "error" });
+    }
+  };
+
+  const importAllRef = useRef(null);
+  const onImportAll = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!window.confirm(`Đồng bộ ngược dữ liệu từ "${file.name}"? Các dòng có cùng ID sẽ ghi đè, dòng mới sẽ thêm vào.`)) {
+      if (importAllRef.current) importAllRef.current.value = "";
+      return;
+    }
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const r = await api.post("/system/import-all-excel", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const summary = Object.entries(r.data.imported || {}).map(([k, v]) => `${k}: ${v}`).join(", ");
+      toast({ title: "Đã đồng bộ", description: summary || "Không có dữ liệu", variant: "success" });
+    } catch (err) {
+      toast({ title: err?.response?.data?.detail || "Lỗi đồng bộ", variant: "error" });
+    } finally {
+      if (importAllRef.current) importAllRef.current.value = "";
     }
   };
 
@@ -320,6 +382,81 @@ export default function Settings() {
               ))}
             </div>
           </div>
+
+          {/* Tuỳ chỉnh chứng từ (Đợt 3A) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-border">
+            <div>
+              <Label>Màu nhấn (accent)</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={form.bill_accent_color}
+                  onChange={(e) => setForm({ ...form, bill_accent_color: e.target.value })}
+                  className="h-9 w-12 rounded border border-border cursor-pointer"
+                  data-testid="settings-accent-color"
+                />
+                <Input
+                  value={form.bill_accent_color}
+                  onChange={(e) => setForm({ ...form, bill_accent_color: e.target.value })}
+                  className="flex-1"
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Vị trí logo</Label>
+              <Select
+                value={form.bill_logo_position}
+                onChange={(e) => setForm({ ...form, bill_logo_position: e.target.value })}
+                data-testid="settings-logo-position"
+              >
+                <option value="left">Trái</option>
+                <option value="center">Giữa</option>
+                <option value="right">Phải</option>
+              </Select>
+            </div>
+          </div>
+
+          <div>
+            <Label>Ô ký nhận trên chứng từ</Label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
+              {[
+                { key: "bill_signature_customer", label: "Khách hàng" },
+                { key: "bill_signature_shipper", label: "NV giao hàng" },
+                { key: "bill_signature_warehouse", label: "QL Kho" },
+                { key: "bill_signature_accountant", label: "Kế toán" },
+              ].map((s) => (
+                <label key={s.key} className="flex items-center gap-2 text-sm cursor-pointer p-2 rounded border border-border hover:bg-cream/40">
+                  <input
+                    type="checkbox"
+                    checked={!!form[s.key]}
+                    onChange={(e) => setForm({ ...form, [s.key]: e.target.checked })}
+                    data-testid={`settings-${s.key.replace(/_/g, '-')}`}
+                  />
+                  {s.label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <Label>Ghi chú cố định (tối đa 5 dòng — hiển thị trên A4/A5)</Label>
+            <div className="space-y-2 mt-1">
+              {form.bill_fixed_notes.map((n, i) => (
+                <Input
+                  key={i}
+                  value={n}
+                  placeholder={`Ghi chú ${i + 1} (VD: Giá đã bao gồm phí vận chuyển)`}
+                  onChange={(e) => {
+                    const next = [...form.bill_fixed_notes];
+                    next[i] = e.target.value;
+                    setForm({ ...form, bill_fixed_notes: next });
+                  }}
+                  data-testid={`settings-fixed-note-${i}`}
+                />
+              ))}
+            </div>
+          </div>
+
           <div>
             <Label>{t("settings.billFooter")}</Label>
             <Textarea
@@ -440,6 +577,41 @@ export default function Settings() {
               </div>
               <Button type="button" size="sm" className="bg-red-600 hover:bg-red-700" onClick={saveDeletePins} data-testid="del-pins-save">
                 {secStatus.has_delete_pins ? "Cập nhật 2 mật khẩu xóa" : "Tạo 2 mật khẩu xóa"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {user?.role === "admin" && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Upload size={18} className="text-bamboo" />
+              <CardTitle>Sao lưu &amp; Xuất nhập dữ liệu</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="text-xs text-ink-secondary">
+              Xuất toàn bộ dữ liệu (Khách hàng, Đơn hàng, Sản phẩm, Lịch sử thanh toán) thành 1 file Excel hoặc 1 file backup .zip. Có thể đồng bộ ngược lên hệ thống bằng file Excel đã tải.
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <Button type="button" variant="outline" onClick={exportAllExcel} data-testid="settings-export-all-excel">
+                <Upload size={14} className="rotate-180" /> Xuất Excel (đa sheet, tiếng Việt)
+              </Button>
+              <Button type="button" variant="outline" onClick={backupZip} data-testid="settings-backup-zip">
+                <Upload size={14} className="rotate-180" /> Backup .zip (full JSON)
+              </Button>
+              <input
+                ref={importAllRef}
+                type="file"
+                accept=".xlsx"
+                onChange={onImportAll}
+                className="hidden"
+                data-testid="settings-import-all-input"
+              />
+              <Button type="button" variant="outline" onClick={() => importAllRef.current?.click()} data-testid="settings-import-all-btn">
+                <Upload size={14} /> Đồng bộ ngược từ Excel
               </Button>
             </div>
           </CardContent>
