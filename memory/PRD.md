@@ -77,7 +77,8 @@ Internal management dashboard for a Vietnamese steamed bun (bánh bao) shop. Com
 - 2026-05-14: v1 MVP delivered
 - 2026-05-14: 13 user-requested improvements (iteration 2)
 - 2026-05-18: v2 — Phase 0+1+2+3+4+6+7
-- 2026-05-18: **v2.1 — Phase 5 (Production + AI forecast) + Phase 8 (AI Insights/Combos/Scoring) + A5 compact print + Dashboard click-throughs + supplier-auto-debt on stock-in + monthly stats in CustomerCare + bug fixes (Products.jsx stock-in handlers + customer-care tz-naive crash)**
+- 2026-05-18: v2.1 — Phase 5 (Production + AI forecast) + Phase 8 (AI Insights/Combos/Scoring) + A5 compact print + Dashboard click-throughs + supplier-auto-debt on stock-in + monthly stats in CustomerCare + bug fixes (Products.jsx stock-in handlers + customer-care tz-naive crash)
+- 2026-05-19: **v2.2 Đợt 1 — UX & address reform** — order clone-via-form (prefill NewOrder, editable before save), stock-in no longer creates payment-history entry (only supplier_debt increment), district label "Quận/Huyện" → "Phường/Xã", added city field "Tỉnh/Thành phố" everywhere (NewOrder + Customer Care + Customers list), removed "Loại" filter from customers list, Customer Care now has city filter + sort by city/name/spent, sidebar "Sản xuất" → "Kho hàng hóa"
 
 ## Pending Backlog (P1)
 - Replace native date pickers with shadcn Calendar in /orders filter

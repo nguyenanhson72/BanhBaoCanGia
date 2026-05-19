@@ -23,7 +23,6 @@ export default function Customers() {
   const [users, setUsers] = useState([]);
   const [q, setQ] = useState("");
   const [group, setGroup] = useState("");
-  const [type, setType] = useState("");
   const [district, setDistrict] = useState("");
   const [sort, setSort] = useState("created_at");
   const [direction, setDirection] = useState("desc");
@@ -37,7 +36,6 @@ export default function Customers() {
     const params = { sort, direction };
     if (q) params.q = q;
     if (group) params.group = group;
-    if (type) params.type = type;
     if (district) params.district = district;
     const { data } = await api.get("/customers", { params });
     setItems(data);
@@ -47,7 +45,7 @@ export default function Customers() {
     load();
     api.get("/users").then((r) => setUsers(r.data)).catch(() => {});
     /* eslint-disable-next-line */
-  }, [group, type, district, sort, direction]);
+  }, [group, district, sort, direction]);
 
   const openCreate = () => { setEditing(null); setForm(EMPTY); setOpen(true); };
   const openEdit = (c) => {
@@ -169,7 +167,7 @@ export default function Customers() {
 
       <Card>
         <CardContent>
-          <form onSubmit={(e) => { e.preventDefault(); load(); }} className="grid grid-cols-1 sm:grid-cols-6 gap-3">
+          <form onSubmit={(e) => { e.preventDefault(); load(); }} className="grid grid-cols-1 sm:grid-cols-5 gap-3">
             <div className="sm:col-span-2">
               <Label>{t("common.search")}</Label>
               <div className="relative">
@@ -187,14 +185,6 @@ export default function Customers() {
               </Select>
             </div>
             <div>
-              <Label>{t("customers.type")}</Label>
-              <Select value={type} onChange={(e) => setType(e.target.value)} data-testid="customers-type-filter">
-                <option value="">{t("common.all")}</option>
-                <option value="retail">{t("customers.retail")}</option>
-                <option value="wholesale">{t("customers.wholesale")}</option>
-              </Select>
-            </div>
-            <div>
               <Label>{t("common.district")}</Label>
               <Select value={district} onChange={(e) => setDistrict(e.target.value)} data-testid="customers-district-filter">
                 <option value="">{t("common.all")}</option>
@@ -207,6 +197,7 @@ export default function Customers() {
                 <Select value={sort} onChange={(e) => setSort(e.target.value)} className="text-xs flex-1" data-testid="customers-sort-field">
                   <option value="created_at">Mới tạo</option>
                   <option value="name">Tên</option>
+                  <option value="city">Tỉnh/Thành</option>
                   <option value="total_spent">Tổng chi</option>
                   <option value="total_orders">Số đơn</option>
                 </Select>
@@ -246,7 +237,9 @@ export default function Customers() {
                     {c.nickname && <div className="text-xs text-ink-muted">({c.nickname})</div>}
                   </td>
                   <td className="py-3 px-4 text-xs">{c.phone}</td>
-                  <td className="py-3 px-4 text-xs">{c.district ? `${c.district}` : "—"}</td>
+                  <td className="py-3 px-4 text-xs">
+                    {c.district || c.city ? `${c.district || ""}${c.district && c.city ? ", " : ""}${c.city || ""}` : "—"}
+                  </td>
                   <td className="py-3 px-4 text-center text-xs">{t(`customers.${c.type || "retail"}`)}</td>
                   <td className="py-3 px-4 text-center"><Badge variant={c.group}>{t(`customers.${c.group}`)}</Badge></td>
                   <td className="py-3 px-4 text-right text-xs">
@@ -303,7 +296,7 @@ export default function Customers() {
             </div>
             <div>
               <Label>{t("common.district")}</Label>
-              <Input value={form.district} onChange={(e) => setForm({ ...form, district: e.target.value })} placeholder="VD: Quận 1" data-testid="customer-form-district" />
+              <Input value={form.district} onChange={(e) => setForm({ ...form, district: e.target.value })} placeholder="VD: Phường 1" data-testid="customer-form-district" />
             </div>
             <div>
               <Label>{t("common.city")}</Label>

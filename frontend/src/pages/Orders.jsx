@@ -60,14 +60,8 @@ export default function Orders() {
   const totalRevenue = orders.reduce((s, o) => s + (o.total || 0), 0);
 
   const duplicate = async (orderId) => {
-    if (!window.confirm("Nhân bản đơn này thành đơn mới với ngày hôm nay?")) return;
-    try {
-      const { data } = await api.post(`/orders/${orderId}/duplicate`);
-      toast({ title: "Đã tạo " + data.order_code, variant: "success" });
-      navigate(`/orders/${data.order_id}`);
-    } catch (e) {
-      toast({ title: e?.response?.data?.detail || t("common.error"), variant: "error" });
-    }
+    if (!window.confirm("Mở form đơn mới với thông tin từ đơn này? Bạn có thể chỉnh sửa trước khi lưu.")) return;
+    navigate(`/orders/new?clone_from=${orderId}`);
   };
 
   const reset = () => {

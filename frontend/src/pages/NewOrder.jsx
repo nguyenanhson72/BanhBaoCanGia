@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Trash2, ArrowLeft } from "lucide-react";
 import api from "../lib/api";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card";
@@ -14,6 +14,8 @@ import { formatVND } from "../lib/utils";
 export default function NewOrder() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const cloneFromId = searchParams.get("clone_from");
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
   const [shippers, setShippers] = useState([]);
@@ -22,6 +24,7 @@ export default function NewOrder() {
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
   const [customerDistrict, setCustomerDistrict] = useState("");
+  const [customerCity, setCustomerCity] = useState("");
   const [orderType, setOrderType] = useState("retail");
   const [items, setItems] = useState([]);
   const [payment, setPayment] = useState("cash");
@@ -43,7 +46,46 @@ export default function NewOrder() {
       setCustomers(c.data);
       setProducts(p.data);
       setShippers(s.data);
+
+      // Clone existing order's data into the form
+      if (cloneFromId) {
+        try {
+          const { data: src } = await api.get(`/orders/${cloneFromId}`);
+          setCustomerId(src.customer_id || "");
+          setCustomerName(src.customer_name || "");
+          setCustomerPhone(src.customer_phone || "");
+          setCustomerAddress(src.customer_address || "");
+          setCustomerDistrict(src.customer_district || "");
+          setCustomerCity(src.customer_city || "");
+          setOrderType(src.type || "retail");
+          setPayment(src.payment_method || "cash");
+          setDiscount(src.discount || 0);
+          setDiscountPercent(src.discount_percent || 0);
+          setShipping(src.shipping_fee || 0);
+          setShipperId(src.assigned_shipper_id || "");
+          setNote(src.note || "");
+          // Re-resolve product stock from products list
+          const productMap = Object.fromEntries((p.data || []).map((pp) => [pp.product_id, pp]));
+          const clonedItems = (src.items || []).map((it) => {
+            const product = productMap[it.product_id] || {};
+            return {
+              product_id: it.product_id,
+              name: it.name,
+              price: it.price || 0,
+              quantity: it.quantity || 1,
+              subtotal: (it.price || 0) * (it.quantity || 0),
+              stock_left: product.stock ?? 0,
+              unit: product.unit || "cái",
+            };
+          });
+          setItems(clonedItems);
+          toast({ title: `Đã sao chép từ ${src.order_code}. Bạn có thể chỉnh sửa trước khi lưu.`, variant: "success" });
+        } catch (e) {
+          toast({ title: e?.response?.data?.detail || "Không tải được đơn gốc", variant: "error" });
+        }
+      }
     })();
+    /* eslint-disable-next-line */
   }, []);
 
   const selectCustomer = (id, c) => {
@@ -53,6 +95,7 @@ export default function NewOrder() {
       setCustomerPhone(c.phone || "");
       setCustomerAddress(c.address || "");
       setCustomerDistrict(c.district || "");
+      setCustomerCity(c.city || "");
       if (c.type === "wholesale") setOrderType("wholesale");
       // Auto due date based on max_debt_days
       if (c.max_debt_days > 0 && payment === "debt") {
@@ -115,6 +158,7 @@ export default function NewOrder() {
         customer_phone: customerPhone,
         customer_address: customerAddress,
         customer_district: customerDistrict,
+        customer_city: customerCity,
         type: orderType,
         items: items.map((it) => ({
           product_id: it.product_id,
@@ -200,14 +244,23 @@ export default function NewOrder() {
                   data-testid="new-order-customer-address"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <Label>{t("common.district")}</Label>
+                  <Label>Phường/Xã</Label>
                   <Input
                     value={customerDistrict}
                     onChange={(e) => setCustomerDistrict(e.target.value)}
-                    placeholder="VD: Quận 1"
+                    placeholder="VD: Phường 1"
                     data-testid="new-order-customer-district"
+                  />
+                </div>
+                <div>
+                  <Label>Tỉnh/Thành phố</Label>
+                  <Input
+                    value={customerCity}
+                    onChange={(e) => setCustomerCity(e.target.value)}
+                    placeholder="VD: TP.HCM"
+                    data-testid="new-order-customer-city"
                   />
                 </div>
                 <div>

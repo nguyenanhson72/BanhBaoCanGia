@@ -351,6 +351,7 @@ class OrderIn(BaseModel):
     customer_phone: Optional[str] = ""
     customer_address: Optional[str] = ""
     customer_district: Optional[str] = ""
+    customer_city: Optional[str] = ""
     type: Literal["retail", "wholesale", "delivery"] = "retail"
     items: List[OrderItemIn]
     payment_method: str = "cash"  # cash/transfer/debt/ewallet/card
@@ -861,25 +862,13 @@ async def stock_in(body: StockInIn, user: dict = Depends(require_permission("sto
         upd["$set"] = {"latest_expiration_date": exp_date, "latest_production_date": prod_date}
     await db[coll].update_one({id_field: body.target_id}, upd)
 
-    # Auto-create supplier debt when supplier + unit_price > 0
+    # Auto-create supplier debt when supplier + unit_price > 0 (do NOT log as payment yet)
     if body.supplier_id and body.unit_price > 0:
         debt_total = body.unit_price * body.quantity
         await db.suppliers.update_one(
             {"supplier_id": body.supplier_id},
             {"$inc": {"total_debt": debt_total}},
         )
-        # Track as an outstanding stock-in debt entry
-        await db.debt_payments.insert_one({
-            "payment_id": f"dbt_{uuid.uuid4().hex[:10]}",
-            "direction": "supplier_debt",  # debt incurred (NOT yet paid)
-            "supplier_id": body.supplier_id,
-            "supplier_name": body.supplier_name,
-            "movement_id": movement["movement_id"],
-            "amount": debt_total,
-            "method": "pending",
-            "notes": f"Nhập kho {target.get('name')} x{body.quantity}",
-            "created_at": now, "created_by": user.get("name"), "created_by_id": user["user_id"],
-        })
 
     movement.pop("_id", None)
     return movement
@@ -1660,6 +1649,7 @@ async def create_order(body: OrderIn, user: dict = Depends(require_permission("o
         "customer_phone": body.customer_phone,
         "customer_address": body.customer_address,
         "customer_district": body.customer_district,
+        "customer_city": body.customer_city,
         "type": body.type,
         "items": items,
         "subtotal": subtotal,
@@ -1934,6 +1924,9 @@ async def list_debt_payments(
     q = {}
     if direction:
         q["direction"] = direction
+    else:
+        # Exclude legacy supplier_debt entries (from old stock-in auto-log) — only real payments now
+        q["direction"] = {"$ne": "supplier_debt"}
     if customer_id:
         q["customer_id"] = customer_id
     if supplier_id:

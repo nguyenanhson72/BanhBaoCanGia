@@ -14,6 +14,8 @@ export default function CustomerCare() {
   const [days, setDays] = useState(0);  // default 0 = chưa đặt hôm nay
   const [q, setQ] = useState("");
   const [district, setDistrict] = useState("");
+  const [city, setCity] = useState("");
+  const [sortBy, setSortBy] = useState("last_order");
   const [showNeedsCareOnly, setShowNeedsCareOnly] = useState(false);
   const [data, setData] = useState(null);
 
@@ -30,11 +32,24 @@ export default function CustomerCare() {
       if (!`${c.name || ""} ${c.phone || ""} ${c.nickname || ""}`.toLowerCase().includes(s)) return false;
     }
     if (district && c.district !== district) return false;
+    if (city && c.city !== city) return false;
     if (showNeedsCareOnly && !c.needs_care) return false;
     return true;
   });
 
+  // Sort
+  const sorted = [...filtered];
+  if (sortBy === "city") {
+    sorted.sort((a, b) => (a.city || "").localeCompare(b.city || "", "vi"));
+  } else if (sortBy === "name") {
+    sorted.sort((a, b) => (a.name || "").localeCompare(b.name || "", "vi"));
+  } else if (sortBy === "total_spent") {
+    sorted.sort((a, b) => (b.total_spent_agg || 0) - (a.total_spent_agg || 0));
+  }
+  // default: keep original (last_order desc from backend)
+
   const districts = Array.from(new Set((data?.items || []).map((c) => c.district).filter(Boolean)));
+  const cities = Array.from(new Set((data?.items || []).map((c) => c.city).filter(Boolean)));
 
   const headerText = days === 0
     ? "Khách chưa đặt HÔM NAY hiển thị riêng. Khách đã đặt hôm nay lên đầu."
@@ -78,7 +93,7 @@ export default function CustomerCare() {
 
       <Card>
         <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-6 gap-3">
             <div className="sm:col-span-2">
               <Label>{t("common.search")}</Label>
               <div className="relative">
@@ -94,6 +109,13 @@ export default function CustomerCare() {
               </Select>
             </div>
             <div>
+              <Label>{t("common.city")}</Label>
+              <Select value={city} onChange={(e) => setCity(e.target.value)} data-testid="care-city">
+                <option value="">{t("common.all")}</option>
+                {cities.map((d) => <option key={d} value={d}>{d}</option>)}
+              </Select>
+            </div>
+            <div>
               <Label>Chưa đặt</Label>
               <Select value={days} onChange={(e) => setDays(Number(e.target.value))} data-testid="care-days">
                 <option value={0}>Hôm nay</option>
@@ -104,7 +126,16 @@ export default function CustomerCare() {
                 <option value={60}>60 ngày</option>
               </Select>
             </div>
-            <div className="flex items-end">
+            <div>
+              <Label>{t("common.sort")}</Label>
+              <Select value={sortBy} onChange={(e) => setSortBy(e.target.value)} data-testid="care-sort">
+                <option value="last_order">Lần đặt cuối</option>
+                <option value="city">Tỉnh/Thành phố</option>
+                <option value="name">Tên A-Z</option>
+                <option value="total_spent">Tổng chi</option>
+              </Select>
+            </div>
+            <div className="sm:col-span-6 flex items-end">
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input type="checkbox" checked={showNeedsCareOnly} onChange={(e) => setShowNeedsCareOnly(e.target.checked)} data-testid="care-needs-only" />
                 Chỉ KH cần CS
@@ -121,7 +152,8 @@ export default function CustomerCare() {
               <tr>
                 <th className="text-left py-3 px-4">Khách hàng</th>
                 <th className="text-left py-3 px-4">SĐT</th>
-                <th className="text-left py-3 px-4">Khu vực</th>
+                <th className="text-left py-3 px-4">Phường/Xã</th>
+                <th className="text-left py-3 px-4">Tỉnh/Thành</th>
                 <th className="text-right py-3 px-4" title="Số đơn / tiền hôm nay"><CalendarCheck size={11} className="inline" /> Hôm nay</th>
                 <th className="text-right py-3 px-4" title="Số đơn / tiền tháng này"><CalendarDays size={11} className="inline" /> Tháng này</th>
                 <th className="text-right py-3 px-4">Tổng đơn</th>
@@ -130,9 +162,9 @@ export default function CustomerCare() {
               </tr>
             </thead>
             <tbody data-testid="care-table-body">
-              {filtered.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-ink-muted">{t("common.empty")}</td></tr>
-              ) : filtered.map((c) => (
+              {sorted.length === 0 ? (
+                <tr><td colSpan={9} className="text-center py-12 text-ink-muted">{t("common.empty")}</td></tr>
+              ) : sorted.map((c) => (
                 <tr key={c.customer_id} className={cn("border-t border-border hover:bg-cream/30", c.needs_care && "bg-amber-50/30")} data-testid={`care-row-${c.customer_id}`}>
                   <td className="py-3 px-4 font-medium">
                     {c.name}
@@ -146,6 +178,7 @@ export default function CustomerCare() {
                     ) : "—"}
                   </td>
                   <td className="py-3 px-4 text-xs">{c.district || "—"}</td>
+                  <td className="py-3 px-4 text-xs">{c.city || "—"}</td>
                   <td className="py-3 px-4 text-right text-xs">
                     {c.today_orders > 0 ? (
                       <div>

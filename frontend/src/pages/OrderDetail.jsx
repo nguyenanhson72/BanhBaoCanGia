@@ -59,14 +59,8 @@ export default function OrderDetail() {
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
   const duplicate = async () => {
-    if (!window.confirm("Nhân bản đơn này thành đơn mới với ngày hôm nay?")) return;
-    try {
-      const { data } = await api.post(`/orders/${id}/duplicate`);
-      toast({ title: "Đã tạo đơn mới " + data.order_code, variant: "success" });
-      navigate(`/orders/${data.order_id}`);
-    } catch (e) {
-      toast({ title: e?.response?.data?.detail || t("common.error"), variant: "error" });
-    }
+    if (!window.confirm("Mở form đơn mới với thông tin từ đơn này? Bạn có thể chỉnh sửa trước khi lưu.")) return;
+    navigate(`/orders/new?clone_from=${id}`);
   };
 
   const updateStatus = async (newStatus) => {

@@ -6,7 +6,7 @@ const en = {
     orders: "Orders",
     products: "Products",
     materials: "Materials",
-    production: "Production",
+    production: "Warehouse",
     stockIn: "Stock In",
     customers: "Customers",
     customerCare: "Customer Care",
