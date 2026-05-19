@@ -62,7 +62,6 @@ export default function OrderDetail() {
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
   const duplicate = async () => {
-    if (!window.confirm("Mở form đơn mới với thông tin từ đơn này? Bạn có thể chỉnh sửa trước khi lưu.")) return;
     navigate(`/orders/new?clone_from=${id}`);
   };
 

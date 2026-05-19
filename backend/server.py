@@ -123,6 +123,21 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
+def _ensure_dt(value):
+    """Coerce a value into a timezone-aware datetime. Handles str (ISO format) +
+    naive datetime + None. Returns None if value can't be parsed."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except Exception:
+            return None
+    if hasattr(value, "tzinfo") and value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value
+
+
 def create_access_token(user_id: str, email: str, role: str) -> str:
     payload = {
         "sub": user_id, "email": email, "role": role,
@@ -1556,9 +1571,7 @@ async def insight_customer_scoring(user: dict = Depends(get_current_user)):
     out = {"vip": [], "high_potential": [], "at_risk": [], "churned": [], "new": []}
     for c in customers:
         s = stats.get(c["customer_id"], {})
-        last_order = s.get("last_order")
-        if last_order and last_order.tzinfo is None:
-            last_order = last_order.replace(tzinfo=timezone.utc)
+        last_order = _ensure_dt(s.get("last_order"))
         order_count = s.get("order_count", 0)
         total_spent = s.get("total_spent", 0)
         avg_order = s.get("avg_order", 0)
@@ -1765,9 +1778,7 @@ async def customer_care(days: int = 14, user: dict = Depends(require_permission(
         lo = last_orders.get(c["customer_id"], {})
         ts = today_stats.get(c["customer_id"], {})
         ms = month_stats.get(c["customer_id"], {})
-        last_order = lo.get("last_order")
-        if last_order and last_order.tzinfo is None:
-            last_order = last_order.replace(tzinfo=timezone.utc)
+        last_order = _ensure_dt(lo.get("last_order"))
         if days == 0:
             needs_care = ts.get("today_orders", 0) == 0
         else:
@@ -2190,13 +2201,11 @@ async def debts_customers(user: dict = Depends(require_permission("debts.view"))
     ]
     items = []
     async for r in db.orders.aggregate(pipeline):
-        min_due = r.get("min_due")
-        max_due = r.get("max_due")
+        min_due = _ensure_dt(r.get("min_due"))
+        max_due = _ensure_dt(r.get("max_due"))
         overdue = False
         due_soon = False
         if min_due:
-            if min_due.tzinfo is None:
-                min_due = min_due.replace(tzinfo=timezone.utc)
             if min_due < now:
                 overdue = True
             elif min_due < now + timedelta(days=3):
