@@ -1,19 +1,22 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Search, Plus, Eye, Printer, Copy } from "lucide-react";
+import { Search, Plus, Eye, Printer, Copy, Trash } from "lucide-react";
 import api from "../lib/api";
 import { Card, CardContent } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Input, Select, Label } from "../components/ui/Input";
 import { Badge } from "../components/ui/Badge";
+import { Modal } from "../components/ui/Modal";
 import PrintPreview from "../components/ui/PrintPreview";
 import { OrdersListPrint } from "../components/print/ReportTemplates";
 import { toast } from "../components/ui/Toast";
 import { useI18n } from "../contexts/I18nContext";
+import { useAuth } from "../contexts/AuthContext";
 import { formatVND, formatDateTime } from "../lib/utils";
 
 export default function Orders() {
   const { t } = useI18n();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [orders, setOrders] = useState([]);
@@ -27,6 +30,9 @@ export default function Orders() {
   const [direction, setDirection] = useState("desc");
   const [loading, setLoading] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
+  const [delAllOpen, setDelAllOpen] = useState(false);
+  const [delAllForm, setDelAllForm] = useState({ account_password: "", pin_a: "", pin_b: "", confirm_text: "" });
+  const [delAllBusy, setDelAllBusy] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -64,6 +70,34 @@ export default function Orders() {
     navigate(`/orders/new?clone_from=${orderId}`);
   };
 
+  const submitDeleteAll = async (e) => {
+    e?.preventDefault?.();
+    if (delAllForm.confirm_text !== "XOA TAT CA") {
+      toast({ title: "Cần gõ chính xác chuỗi XOA TAT CA", variant: "error" });
+      return;
+    }
+    if (!delAllForm.account_password || !delAllForm.pin_a || !delAllForm.pin_b) {
+      toast({ title: "Cần nhập đủ 3 mật khẩu", variant: "error" });
+      return;
+    }
+    setDelAllBusy(true);
+    try {
+      const { data } = await api.post("/orders/delete-all", {
+        account_password: delAllForm.account_password,
+        pin_a: delAllForm.pin_a,
+        pin_b: delAllForm.pin_b,
+      });
+      toast({ title: `Đã xóa ${data.deleted} đơn`, variant: "success" });
+      setDelAllOpen(false);
+      setDelAllForm({ account_password: "", pin_a: "", pin_b: "", confirm_text: "" });
+      load();
+    } catch (err) {
+      toast({ title: err?.response?.data?.detail || "Lỗi", variant: "error" });
+    } finally {
+      setDelAllBusy(false);
+    }
+  };
+
   const reset = () => {
     setQ(""); setStatus(""); setPayment(""); setType("");
     setDateFrom(""); setDateTo("");
@@ -83,6 +117,11 @@ export default function Orders() {
           <Button variant="outline" size="md" onClick={() => setPrintOpen(true)} data-testid="orders-print-button">
             <Printer size={14} /> In / PDF
           </Button>
+          {user?.role === "admin" && (
+            <Button variant="outline" size="md" className="text-red-700 border-red-300 hover:bg-red-50" onClick={() => setDelAllOpen(true)} data-testid="orders-delete-all-button">
+              <Trash size={14} /> Xóa toàn bộ
+            </Button>
+          )}
           <Link to="/orders/new">
             <Button data-testid="orders-new-button">
               <Plus size={16} />{t("orders.new")}
@@ -90,6 +129,58 @@ export default function Orders() {
           </Link>
         </div>
       </div>
+
+      <Modal open={delAllOpen} onClose={() => setDelAllOpen(false)} title="Xóa toàn bộ đơn hàng" size="md" testId="orders-delete-all-modal">
+        <form onSubmit={submitDeleteAll} className="space-y-3">
+          <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2.5">
+            ⚠ Thao tác này sẽ <strong>xóa toàn bộ đơn hàng</strong> và khôi phục lại tồn kho. Yêu cầu 3 lớp xác thực + chuỗi xác nhận. Không thể hoàn tác.
+          </div>
+          <div>
+            <Label>1) Mật khẩu tài khoản admin</Label>
+            <Input
+              type="password"
+              value={delAllForm.account_password}
+              onChange={(e) => setDelAllForm({ ...delAllForm, account_password: e.target.value })}
+              required
+              data-testid="del-all-account-pass"
+            />
+          </div>
+          <div>
+            <Label>2) Mật khẩu xóa A</Label>
+            <Input
+              type="password"
+              value={delAllForm.pin_a}
+              onChange={(e) => setDelAllForm({ ...delAllForm, pin_a: e.target.value })}
+              required
+              data-testid="del-all-pin-a"
+            />
+          </div>
+          <div>
+            <Label>3) Mật khẩu xóa B</Label>
+            <Input
+              type="password"
+              value={delAllForm.pin_b}
+              onChange={(e) => setDelAllForm({ ...delAllForm, pin_b: e.target.value })}
+              required
+              data-testid="del-all-pin-b"
+            />
+          </div>
+          <div>
+            <Label>Gõ <span className="font-mono font-bold">XOA TAT CA</span> để xác nhận</Label>
+            <Input
+              value={delAllForm.confirm_text}
+              onChange={(e) => setDelAllForm({ ...delAllForm, confirm_text: e.target.value })}
+              data-testid="del-all-confirm-text"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => setDelAllOpen(false)}>Hủy</Button>
+            <Button type="submit" disabled={delAllBusy} className="bg-red-600 hover:bg-red-700" data-testid="del-all-submit">
+              {delAllBusy ? "..." : "XÓA TOÀN BỘ"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       <Card>
         <CardContent>

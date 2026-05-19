@@ -220,6 +220,40 @@ def require_permission(*keys: str):
     return dep
 
 
+# ===========================================================================
+# PIN2 — second-level password required to mutate orders (delete/edit/status)
+# ===========================================================================
+async def _get_pin2_hash() -> Optional[str]:
+    sec = await db.security_settings.find_one({"_singleton": "sec"}, {"_id": 0})
+    return sec.get("pin2_hash") if sec else None
+
+
+async def require_pin2(request: Request, user: dict = Depends(get_current_user)) -> dict:
+    """If a pin2 is set in security_settings, demand a matching X-PIN2 header."""
+    pin2_hash = await _get_pin2_hash()
+    if not pin2_hash:
+        return user
+    provided = request.headers.get("X-PIN2") or ""
+    if not provided or not verify_password(provided, pin2_hash):
+        raise HTTPException(status_code=403, detail="PIN2_REQUIRED")
+    return user
+
+
+def require_permission_and_pin2(*keys: str):
+    """Combined dependency: permission + (if set) PIN2 header validation."""
+    base = require_permission(*keys)
+
+    async def dep(request: Request, user: dict = Depends(base)) -> dict:
+        pin2_hash = await _get_pin2_hash()
+        if pin2_hash:
+            provided = request.headers.get("X-PIN2") or ""
+            if not provided or not verify_password(provided, pin2_hash):
+                raise HTTPException(status_code=403, detail="PIN2_REQUIRED")
+        return user
+
+    return dep
+
+
 def _normalize_payment(method: Optional[str]) -> str:
     """Backwards-compat: 'cod' is renamed to 'debt'."""
     if method == "cod":
@@ -616,6 +650,124 @@ async def update_settings(body: ShopSettingsIn, user: dict = Depends(require_per
     await db.settings.update_one({"_singleton": SETTINGS_ID}, {"$set": doc, "$setOnInsert": {"_singleton": SETTINGS_ID}}, upsert=True)
     out = dict(doc)
     return out
+
+
+# ===========================================================================
+# Security — PIN2 + delete-all PIN pair (admin only)
+# ===========================================================================
+class Pin2SetIn(BaseModel):
+    account_password: str
+    new_pin: str = Field(min_length=4, max_length=32)
+
+
+class DeletePinsSetIn(BaseModel):
+    account_password: str
+    pin_a: str = Field(min_length=4, max_length=32)
+    pin_b: str = Field(min_length=4, max_length=32)
+
+
+class Pin2VerifyIn(BaseModel):
+    pin: str
+
+
+class DeleteAllOrdersIn(BaseModel):
+    account_password: str
+    pin_a: str
+    pin_b: str
+
+
+async def _require_account_password(user: dict, password: str) -> dict:
+    """Re-fetch user with password_hash and verify."""
+    full = await db.users.find_one({"user_id": user["user_id"]})
+    if not full or not full.get("password_hash") or not verify_password(password, full["password_hash"]):
+        raise HTTPException(status_code=403, detail="Mật khẩu tài khoản không đúng")
+    return full
+
+
+@api.get("/security/status")
+async def security_status(user: dict = Depends(get_current_user)):
+    sec = await db.security_settings.find_one({"_singleton": "sec"}, {"_id": 0}) or {}
+    return {
+        "has_pin2": bool(sec.get("pin2_hash")),
+        "has_delete_pins": bool(sec.get("delete_pin_a_hash")) and bool(sec.get("delete_pin_b_hash")),
+        "pin2_updated_at": sec.get("pin2_updated_at"),
+        "delete_pins_updated_at": sec.get("delete_pins_updated_at"),
+    }
+
+
+@api.post("/security/pin2")
+async def set_pin2(body: Pin2SetIn, user: dict = Depends(require_role("admin"))):
+    await _require_account_password(user, body.account_password)
+    now = datetime.now(timezone.utc)
+    await db.security_settings.update_one(
+        {"_singleton": "sec"},
+        {"$set": {"pin2_hash": hash_password(body.new_pin), "pin2_updated_at": now},
+         "$setOnInsert": {"_singleton": "sec"}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.delete("/security/pin2")
+async def clear_pin2(account_password: str = Query(...), user: dict = Depends(require_role("admin"))):
+    await _require_account_password(user, account_password)
+    await db.security_settings.update_one(
+        {"_singleton": "sec"},
+        {"$unset": {"pin2_hash": "", "pin2_updated_at": ""}},
+    )
+    return {"ok": True}
+
+
+@api.post("/security/verify-pin2")
+async def verify_pin2(body: Pin2VerifyIn, user: dict = Depends(get_current_user)):
+    pin2_hash = await _get_pin2_hash()
+    if not pin2_hash:
+        return {"ok": True, "set": False}
+    if not verify_password(body.pin, pin2_hash):
+        raise HTTPException(status_code=403, detail="PIN2 không đúng")
+    return {"ok": True, "set": True}
+
+
+@api.post("/security/delete-pins")
+async def set_delete_pins(body: DeletePinsSetIn, user: dict = Depends(require_role("admin"))):
+    await _require_account_password(user, body.account_password)
+    if body.pin_a == body.pin_b:
+        raise HTTPException(status_code=400, detail="2 mật khẩu xóa phải khác nhau")
+    now = datetime.now(timezone.utc)
+    await db.security_settings.update_one(
+        {"_singleton": "sec"},
+        {"$set": {
+            "delete_pin_a_hash": hash_password(body.pin_a),
+            "delete_pin_b_hash": hash_password(body.pin_b),
+            "delete_pins_updated_at": now,
+        }, "$setOnInsert": {"_singleton": "sec"}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.post("/orders/delete-all")
+async def delete_all_orders(body: DeleteAllOrdersIn, user: dict = Depends(require_role("admin"))):
+    """3-layer protection: account password + 2 admin-set PINs."""
+    sec = await db.security_settings.find_one({"_singleton": "sec"}, {"_id": 0}) or {}
+    if not sec.get("delete_pin_a_hash") or not sec.get("delete_pin_b_hash"):
+        raise HTTPException(status_code=400, detail="Chưa cài đặt 2 mật khẩu xóa. Vào Cài đặt → Bảo mật.")
+    await _require_account_password(user, body.account_password)
+    if not verify_password(body.pin_a, sec["delete_pin_a_hash"]):
+        raise HTTPException(status_code=403, detail="Mật khẩu xóa A không đúng")
+    if not verify_password(body.pin_b, sec["delete_pin_b_hash"]):
+        raise HTTPException(status_code=403, detail="Mật khẩu xóa B không đúng")
+
+    # Restore stock for non-cancelled orders before wiping
+    orders = await db.orders.find({"status": {"$ne": "cancelled"}}, {"_id": 0, "items": 1}).to_list(None)
+    for o in orders:
+        for it in (o.get("items") or []):
+            await db.products.update_one(
+                {"product_id": it["product_id"]},
+                {"$inc": {"stock": it.get("quantity", 0)}},
+            )
+    res = await db.orders.delete_many({})
+    return {"ok": True, "deleted": res.deleted_count}
 
 
 # ===========================================================================
@@ -1727,7 +1879,7 @@ async def duplicate_order(order_id: str, user: dict = Depends(require_permission
 
 
 @api.put("/orders/{order_id}/status")
-async def update_order_status(order_id: str, body: OrderStatusUpdate, user: dict = Depends(require_permission("orders.edit"))):
+async def update_order_status(order_id: str, body: OrderStatusUpdate, user: dict = Depends(require_permission_and_pin2("orders.edit"))):
     o = await db.orders.find_one({"order_id": order_id})
     if not o:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
@@ -1761,7 +1913,7 @@ async def assign_shipper(order_id: str, shipper_id: str = Query(...), user: dict
 
 
 @api.delete("/orders/{order_id}")
-async def delete_order(order_id: str, user: dict = Depends(require_permission("orders.delete"))):
+async def delete_order(order_id: str, user: dict = Depends(require_permission_and_pin2("orders.delete"))):
     o = await db.orders.find_one({"order_id": order_id})
     if not o:
         raise HTTPException(status_code=404, detail="Không tìm thấy")

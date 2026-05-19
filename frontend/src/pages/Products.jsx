@@ -8,6 +8,7 @@ import { Badge } from "../components/ui/Badge";
 import { Modal } from "../components/ui/Modal";
 import { toast } from "../components/ui/Toast";
 import { useI18n } from "../contexts/I18nContext";
+import { useAuth } from "../contexts/AuthContext";
 import { formatVND, formatDate } from "../lib/utils";
 
 const EMPTY = {
@@ -53,6 +54,11 @@ function fileToBase64(file) {
 
 export default function Products() {
   const { t } = useI18n();
+  const { user } = useAuth();
+  const canEdit = user?.role === "admin" || (user?.permissions_effective || user?.permissions || []).includes("products.edit");
+  const canDelete = user?.role === "admin" || (user?.permissions_effective || user?.permissions || []).includes("products.delete");
+  const canCreate = user?.role === "admin" || (user?.permissions_effective || user?.permissions || []).includes("products.create");
+  const canStockIn = user?.role === "admin" || (user?.permissions_effective || user?.permissions || []).includes("stock.in");
   const [items, setItems] = useState([]);
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
@@ -202,7 +208,7 @@ export default function Products() {
           <h1 className="font-heading text-3xl font-bold tracking-tight">{t("products.title")}</h1>
           <p className="text-sm text-ink-secondary mt-1">{items.length} {t("common.total").toLowerCase()}</p>
         </div>
-        <Button onClick={openCreate} data-testid="products-new-button">
+        <Button onClick={openCreate} data-testid="products-new-button" className={!canCreate ? "hidden" : ""}>
           <Plus size={16} /> {t("common.add")}
         </Button>
       </div>
@@ -272,15 +278,21 @@ export default function Products() {
                     </span>
                   </span>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => openStockIn(p)} data-testid={`product-stockin-${p.product_id}`} title="Nhập kho">
-                      <PackagePlus size={14} className="text-bamboo" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => openEdit(p)} data-testid={`product-edit-${p.product_id}`}>
-                      <Edit size={14} />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => remove(p)} data-testid={`product-delete-${p.product_id}`}>
-                      <Trash2 size={14} className="text-red-500" />
-                    </Button>
+                    {canStockIn && (
+                      <Button variant="ghost" size="icon" onClick={() => openStockIn(p)} data-testid={`product-stockin-${p.product_id}`} title="Nhập kho">
+                        <PackagePlus size={14} className="text-bamboo" />
+                      </Button>
+                    )}
+                    {canEdit && (
+                      <Button variant="ghost" size="icon" onClick={() => openEdit(p)} data-testid={`product-edit-${p.product_id}`}>
+                        <Edit size={14} />
+                      </Button>
+                    )}
+                    {canDelete && (
+                      <Button variant="ghost" size="icon" onClick={() => remove(p)} data-testid={`product-delete-${p.product_id}`}>
+                        <Trash2 size={14} className="text-red-500" />
+                      </Button>
+                    )}
                   </div>
                 </div>
                 {p.latest_expiration_date && (

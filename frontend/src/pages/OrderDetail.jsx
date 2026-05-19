@@ -9,6 +9,7 @@ import { Textarea, Label } from "../components/ui/Input";
 import { toast } from "../components/ui/Toast";
 import PrintPreview from "../components/ui/PrintPreview";
 import { BillThermal, InvoiceA4, InvoiceA5Landscape } from "../components/print/BillTemplates";
+import Pin2Prompt from "../components/ui/Pin2Prompt";
 import { useI18n } from "../contexts/I18nContext";
 import { formatVND, formatDateTime } from "../lib/utils";
 
@@ -41,6 +42,8 @@ export default function OrderDetail() {
   const [loading, setLoading] = useState(true);
   const [statusNote, setStatusNote] = useState("");
   const [printMode, setPrintMode] = useState(null); // "80mm" | "a4" | "a5"
+  const [pin2Open, setPin2Open] = useState(false);
+  const [pin2RetryAction, setPin2RetryAction] = useState(null); // function to retry on success
 
   const load = async () => {
     setLoading(true);
@@ -64,14 +67,41 @@ export default function OrderDetail() {
   };
 
   const updateStatus = async (newStatus) => {
-    try {
-      const { data } = await api.put(`/orders/${id}/status`, { status: newStatus, note: statusNote });
-      setOrder(data);
-      setStatusNote("");
-      toast({ title: t("common.update") + " ✓", variant: "success" });
-    } catch (e) {
-      toast({ title: e?.response?.data?.detail || t("common.error"), variant: "error" });
-    }
+    const doUpdate = async () => {
+      try {
+        const { data } = await api.put(`/orders/${id}/status`, { status: newStatus, note: statusNote });
+        setOrder(data);
+        setStatusNote("");
+        toast({ title: t("common.update") + " ✓", variant: "success" });
+      } catch (e) {
+        if (e?.response?.status === 403 && e?.response?.data?.detail === "PIN2_REQUIRED") {
+          setPin2RetryAction(() => doUpdate);
+          setPin2Open(true);
+          return;
+        }
+        toast({ title: e?.response?.data?.detail || t("common.error"), variant: "error" });
+      }
+    };
+    await doUpdate();
+  };
+
+  const removeOrder = async () => {
+    if (!window.confirm(`Xóa đơn ${order.order_code}? Tồn kho sẽ được khôi phục.`)) return;
+    const doDel = async () => {
+      try {
+        await api.delete(`/orders/${id}`);
+        toast({ title: "Đã xóa đơn", variant: "success" });
+        navigate("/orders");
+      } catch (e) {
+        if (e?.response?.status === 403 && e?.response?.data?.detail === "PIN2_REQUIRED") {
+          setPin2RetryAction(() => doDel);
+          setPin2Open(true);
+          return;
+        }
+        toast({ title: e?.response?.data?.detail || t("common.error"), variant: "error" });
+      }
+    };
+    await doDel();
   };
 
   if (loading) return <div className="text-sm text-ink-muted">{t("common.loading")}</div>;
@@ -103,8 +133,23 @@ export default function OrderDetail() {
           <Button size="sm" onClick={() => setPrintMode("a5")} data-testid="order-print-a5">
             <Printer size={14} /> A5 ngang
           </Button>
+          <Button variant="outline" size="sm" onClick={removeOrder} className="text-red-700 border-red-300 hover:bg-red-50" data-testid="order-delete">
+            <XCircle size={14} /> Xóa đơn
+          </Button>
         </div>
       </div>
+
+      <Pin2Prompt
+        open={pin2Open}
+        onClose={() => { setPin2Open(false); setPin2RetryAction(null); }}
+        onVerified={() => {
+          setPin2Open(false);
+          const fn = pin2RetryAction;
+          setPin2RetryAction(null);
+          if (typeof fn === "function") fn();
+        }}
+        action="thao tác trên đơn hàng"
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">

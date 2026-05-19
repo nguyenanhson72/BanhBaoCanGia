@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/Card"
 import { Input, Label, Select, Textarea } from "../components/ui/Input";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
-import { Upload, Image as ImageIcon, AlertTriangle, RotateCw } from "lucide-react";
+import { Upload, Image as ImageIcon, AlertTriangle, RotateCw, ShieldCheck, KeyRound, Shield } from "lucide-react";
 import api from "../lib/api";
 import { useI18n } from "../contexts/I18nContext";
 import { useAuth } from "../contexts/AuthContext";
@@ -48,6 +48,9 @@ export default function Settings() {
   const [form, setForm] = useState(DEFAULT);
   const [serverTime, setServerTime] = useState(null);
   const [now, setNow] = useState(new Date());
+  const [secStatus, setSecStatus] = useState({ has_pin2: false, has_delete_pins: false });
+  const [pin2Form, setPin2Form] = useState({ account_password: "", new_pin: "" });
+  const [delPinsForm, setDelPinsForm] = useState({ account_password: "", pin_a: "", pin_b: "" });
   const fileRef = useRef(null);
 
   const refreshTime = async () => {
@@ -57,12 +60,66 @@ export default function Settings() {
     } catch {}
   };
 
+  const refreshSecStatus = async () => {
+    try {
+      const { data } = await api.get("/security/status");
+      setSecStatus(data);
+    } catch {}
+  };
+
   useEffect(() => {
     api.get("/settings").then(({ data }) => setForm({ ...DEFAULT, ...data }));
     refreshTime();
+    refreshSecStatus();
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  const savePin2 = async () => {
+    if (!pin2Form.account_password || !pin2Form.new_pin) {
+      toast({ title: "Cần nhập mật khẩu tài khoản và mật khẩu cấp 2 mới", variant: "error" });
+      return;
+    }
+    try {
+      await api.post("/security/pin2", pin2Form);
+      toast({ title: "Đã cập nhật mật khẩu cấp 2", variant: "success" });
+      setPin2Form({ account_password: "", new_pin: "" });
+      refreshSecStatus();
+    } catch (err) {
+      toast({ title: err?.response?.data?.detail || "Lỗi", variant: "error" });
+    }
+  };
+
+  const clearPin2 = async () => {
+    const pwd = window.prompt("Nhập mật khẩu tài khoản để tắt mật khẩu cấp 2:");
+    if (!pwd) return;
+    try {
+      await api.delete(`/security/pin2?account_password=${encodeURIComponent(pwd)}`);
+      toast({ title: "Đã tắt mật khẩu cấp 2", variant: "success" });
+      refreshSecStatus();
+    } catch (err) {
+      toast({ title: err?.response?.data?.detail || "Lỗi", variant: "error" });
+    }
+  };
+
+  const saveDeletePins = async () => {
+    if (!delPinsForm.account_password || !delPinsForm.pin_a || !delPinsForm.pin_b) {
+      toast({ title: "Cần đủ 3 trường", variant: "error" });
+      return;
+    }
+    if (delPinsForm.pin_a === delPinsForm.pin_b) {
+      toast({ title: "2 mật khẩu xóa phải khác nhau", variant: "error" });
+      return;
+    }
+    try {
+      await api.post("/security/delete-pins", delPinsForm);
+      toast({ title: "Đã cập nhật 2 mật khẩu xóa", variant: "success" });
+      setDelPinsForm({ account_password: "", pin_a: "", pin_b: "" });
+      refreshSecStatus();
+    } catch (err) {
+      toast({ title: err?.response?.data?.detail || "Lỗi", variant: "error" });
+    }
+  };
 
   const onLogo = async (e) => {
     const file = e.target.files?.[0];
@@ -284,6 +341,110 @@ export default function Settings() {
           </div>
         </CardContent>
       </Card>
+
+      {user?.role === "admin" && (
+        <Card className="border-amber-200">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <ShieldCheck size={18} className="text-amber-700" />
+              <CardTitle className="text-amber-800">Bảo mật cấp 2</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="text-xs text-ink-secondary">
+              Mật khẩu cấp 2 sẽ được yêu cầu khi <strong>sửa trạng thái</strong> hoặc <strong>xóa đơn hàng</strong>. Mọi nhân viên (kể cả admin) đều phải nhập.
+            </div>
+
+            {/* PIN2 */}
+            <div className="border border-border rounded p-3 space-y-3" data-testid="settings-pin2-card">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <KeyRound size={16} className="text-bamboo" />
+                  <div className="font-medium text-sm">Mật khẩu cấp 2 (PIN2)</div>
+                </div>
+                <Badge variant={secStatus.has_pin2 ? "delivered" : "cancelled"} data-testid="pin2-status">
+                  {secStatus.has_pin2 ? "Đã thiết lập" : "Chưa có"}
+                </Badge>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label>Mật khẩu tài khoản (xác thực)</Label>
+                  <Input
+                    type="password"
+                    value={pin2Form.account_password}
+                    onChange={(e) => setPin2Form({ ...pin2Form, account_password: e.target.value })}
+                    data-testid="pin2-account-pass"
+                  />
+                </div>
+                <div>
+                  <Label>Mật khẩu cấp 2 mới (≥ 4 ký tự)</Label>
+                  <Input
+                    type="password"
+                    value={pin2Form.new_pin}
+                    onChange={(e) => setPin2Form({ ...pin2Form, new_pin: e.target.value })}
+                    data-testid="pin2-new-pin"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" onClick={savePin2} data-testid="pin2-save">
+                  {secStatus.has_pin2 ? "Cập nhật PIN2" : "Tạo PIN2"}
+                </Button>
+                {secStatus.has_pin2 && (
+                  <Button type="button" size="sm" variant="outline" className="text-red-700 border-red-300" onClick={clearPin2} data-testid="pin2-clear">
+                    Tắt PIN2
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Delete-all PINs */}
+            <div className="border border-border rounded p-3 space-y-3" data-testid="settings-delete-pins-card">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Shield size={16} className="text-red-700" />
+                  <div className="font-medium text-sm">2 mật khẩu xóa toàn bộ đơn hàng</div>
+                </div>
+                <Badge variant={secStatus.has_delete_pins ? "delivered" : "cancelled"} data-testid="delete-pins-status">
+                  {secStatus.has_delete_pins ? "Đã thiết lập" : "Chưa có"}
+                </Badge>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <Label>Mật khẩu tài khoản</Label>
+                  <Input
+                    type="password"
+                    value={delPinsForm.account_password}
+                    onChange={(e) => setDelPinsForm({ ...delPinsForm, account_password: e.target.value })}
+                    data-testid="del-pins-account-pass"
+                  />
+                </div>
+                <div>
+                  <Label>Mật khẩu xóa A</Label>
+                  <Input
+                    type="password"
+                    value={delPinsForm.pin_a}
+                    onChange={(e) => setDelPinsForm({ ...delPinsForm, pin_a: e.target.value })}
+                    data-testid="del-pins-a"
+                  />
+                </div>
+                <div>
+                  <Label>Mật khẩu xóa B</Label>
+                  <Input
+                    type="password"
+                    value={delPinsForm.pin_b}
+                    onChange={(e) => setDelPinsForm({ ...delPinsForm, pin_b: e.target.value })}
+                    data-testid="del-pins-b"
+                  />
+                </div>
+              </div>
+              <Button type="button" size="sm" className="bg-red-600 hover:bg-red-700" onClick={saveDeletePins} data-testid="del-pins-save">
+                {secStatus.has_delete_pins ? "Cập nhật 2 mật khẩu xóa" : "Tạo 2 mật khẩu xóa"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {user?.role === "admin" && (
         <Card className="border-red-200 bg-red-50/30">
